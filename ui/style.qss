@@ -273,7 +273,6 @@ QPlainTextEdit::placeholder {
     color: #64748b;
 }
 
-QComboBox::drop-down,
 QSpinBox::up-button,
 QSpinBox::down-button,
 QDoubleSpinBox::up-button,

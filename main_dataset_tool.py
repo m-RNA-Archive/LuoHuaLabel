@@ -625,7 +625,6 @@ class DatasetToolWindow(QMainWindow):
                 }
                 QPushButton#PrimaryAction:hover { background-color: #22c55e; color: #052e16; }
                 QPushButton#PrimaryAction:disabled { background-color: #cbd5e1; border-color: #cbd5e1; color: #64748b; }
-                QComboBox::drop-down { border: none; width: 24px; }
                 QComboBox QAbstractItemView {
                     border: 1px solid #cbd5e1;
                     border-radius: 5px;
@@ -706,7 +705,6 @@ class DatasetToolWindow(QMainWindow):
                 }
                 QPushButton#PrimaryAction:hover { background-color: #22c55e; color: #052e16; }
                 QPushButton#PrimaryAction:disabled { background-color: #334155; border-color: #334155; color: #94a3b8; }
-                QComboBox::drop-down { border: none; width: 24px; }
                 QComboBox QAbstractItemView {
                     border: 1px solid #334155;
                     border-radius: 5px;

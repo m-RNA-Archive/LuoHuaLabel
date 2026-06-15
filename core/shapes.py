@@ -65,26 +65,51 @@ def clamp_item_position(item, proposed_pos):
 
 
 class BaseShape:
+    fill_alpha = 50
+    hover_fill_alpha = 120
+    breathing_enabled = True
+    breathing_alpha = 50
+
+    def _shape_color(self):
+        return resolve_shape_color(self, getattr(self, 'label', ''))
+
+    def _fill_alpha(self):
+        if getattr(self, '_hovered', False):
+            return self.hover_fill_alpha
+        if self.breathing_enabled and not getattr(self, 'is_temp', False):
+            return self.breathing_alpha
+        return self.fill_alpha
+
+    def _brush_for_current_state(self):
+        color = self._shape_color()
+        return QBrush(QColor(color.red(), color.green(), color.blue(), self._fill_alpha()))
+
+    def refresh_breathing_brush(self):
+        if getattr(self, 'is_temp', False):
+            return
+        if hasattr(self, 'setBrush'):
+            self.setBrush(self._brush_for_current_state())
+
     def setup_style(self, item):
-        base_color = resolve_shape_color(self, getattr(self, 'label', ''))
+        base_color = self._shape_color()
         self.normal_pen = QPen(base_color, 2)
-        self.normal_brush = QBrush(QColor(base_color.red(), base_color.green(), base_color.blue(), 50))
-        self.hover_brush = QBrush(QColor(base_color.red(), base_color.green(), base_color.blue(), 120))
+        self.normal_brush = QBrush(QColor(base_color.red(), base_color.green(), base_color.blue(), self.fill_alpha))
+        self.hover_brush = QBrush(QColor(base_color.red(), base_color.green(), base_color.blue(), self.hover_fill_alpha))
 
         item.setPen(self.normal_pen)
-        item.setBrush(self.normal_brush)
+        item.setBrush(self._brush_for_current_state())
         item.setFlags(
             QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemSendsGeometryChanges)
         item.setAcceptHoverEvents(True)
 
     def apply_hover_enter(self, item):
         if not getattr(item, 'is_temp', False):
-            item.setBrush(self.hover_brush)
+            item.setBrush(self._brush_for_current_state())
             item.setCursor(Qt.PointingHandCursor)
 
     def apply_hover_leave(self, item):
         if not getattr(item, 'is_temp', False):
-            item.setBrush(self.normal_brush)
+            item.setBrush(self._brush_for_current_state())
             item.setCursor(Qt.ArrowCursor)
 
     def setup_label(self, item):
@@ -101,16 +126,16 @@ class BaseShape:
         if hasattr(self, 'normal_pen'):
             self.normal_pen.setColor(color)
         if hasattr(self, 'normal_brush'):
-            self.normal_brush = QBrush(QColor(color.red(), color.green(), color.blue(), 50))
+            self.normal_brush = QBrush(QColor(color.red(), color.green(), color.blue(), self.fill_alpha))
         if hasattr(self, 'hover_brush'):
-            self.hover_brush = QBrush(QColor(color.red(), color.green(), color.blue(), 120))
+            self.hover_brush = QBrush(QColor(color.red(), color.green(), color.blue(), self.hover_fill_alpha))
         if hasattr(self, 'label_text') and self.label_text:
             self.label_text.setDefaultTextColor(color)
 
         if hasattr(self, 'setPen') and hasattr(self, 'normal_pen'):
             self.setPen(self.normal_pen)
         if hasattr(self, 'setBrush') and hasattr(self, 'normal_brush'):
-            self.setBrush(self.hover_brush if getattr(self, '_hovered', False) else self.normal_brush)
+            self.setBrush(self._brush_for_current_state())
 
         for handle_name in ('lt_handle', 'rt_handle', 'lb_handle', 'rb_handle', 'ghost_handle'):
             handle = getattr(self, handle_name, None)
@@ -634,7 +659,7 @@ class RotatedRectShape(QGraphicsObject, BaseShape):
         else:
             base_color = resolve_shape_color(self, label)
             self.rect_item.setPen(QPen(base_color, 2))
-            self.rect_item.setBrush(QBrush(QColor(base_color.red(), base_color.green(), base_color.blue(), 50)))
+            self.rect_item.setBrush(self._brush_for_current_state())
 
         self.rotate_line = QGraphicsLineItem(self)
         self.rotate_line.setPen(QPen(resolve_shape_color(self, label), 1.5, Qt.DashLine))
@@ -735,15 +760,13 @@ class RotatedRectShape(QGraphicsObject, BaseShape):
 
     def hoverEnterEvent(self, event):
         self._hovered = True
-        color = resolve_shape_color(self, self.label)
-        self.rect_item.setBrush(QBrush(QColor(color.red(), color.green(), color.blue(), 120)))
+        self.refresh_breathing_brush()
         self._update_handle_visibility()
         super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event):
         self._hovered = False
-        color = resolve_shape_color(self, self.label)
-        self.rect_item.setBrush(QBrush(QColor(color.red(), color.green(), color.blue(), 50)))
+        self.refresh_breathing_brush()
         self._update_handle_visibility()
         super().hoverLeaveEvent(event)
 
@@ -785,7 +808,7 @@ class RotatedRectShape(QGraphicsObject, BaseShape):
         color = resolve_shape_color(self, label)
 
         self.rect_item.setPen(QPen(color, 2))
-        self.rect_item.setBrush(QBrush(QColor(color.red(), color.green(), color.blue(), 120 if self._hovered else 50)))
+        self.rect_item.setBrush(self._brush_for_current_state())
         self.rotate_line.setPen(QPen(color, 1.5, Qt.DashLine))
 
         if hasattr(self, 'label_text') and self.label_text:
@@ -794,3 +817,8 @@ class RotatedRectShape(QGraphicsObject, BaseShape):
         for handle in getattr(self, 'handles', []):
             if isinstance(handle, OBBHandle):
                 handle.update()
+
+    def refresh_breathing_brush(self):
+        if getattr(self, 'is_temp', False):
+            return
+        self.rect_item.setBrush(self._brush_for_current_state())

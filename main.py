@@ -1,13 +1,14 @@
 import sys
 import os
 import json
+import math
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QInputDialog, QMessageBox, QLabel,
     QListWidgetItem, QColorDialog, QMenu, QDialog, QVBoxLayout, QListWidget,
     QComboBox, QLineEdit, QTextEdit, QPlainTextEdit,
     QPushButton, QHBoxLayout, QTreeWidgetItem
 )
-from PySide6.QtCore import Qt, QPointF, QRectF, QSettings, QSize
+from PySide6.QtCore import Qt, QPointF, QRectF, QSettings, QSize, QTimer
 from PySide6.QtGui import (
     QPolygonF, QColor, QBrush, QPixmap, QIcon, QPalette, QCursor, QPainter, QPen,
     QShortcut, QKeySequence
@@ -18,7 +19,7 @@ from ui.main_window import Ui_MainWindow
 from core.canvas import Canvas, CanvasMode
 from core.sam_client import SAMClient
 from core.exporter import Exporter
-from core.shapes import RectShape, PolyShape, PointShape, RotatedRectShape, color_for_label
+from core.shapes import BaseShape, RectShape, PolyShape, PointShape, RotatedRectShape, color_for_label
 from utils.message import DialogOver
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -166,6 +167,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.settings = QSettings("LuoHuaLabel", "LuoHuaLabel")
         self.current_format = self.settings.value("last_format", "yolo", str)
         self.current_theme = self.settings.value("theme", "system", str)
+        self.breathing_highlight_enabled = self._settings_bool("breathing_highlight", True)
         self.active_label = self.settings.value("active_label", "", str)
         self.last_edit_label_index = self.settings.value("last_edit_label_index", 0, int)
         self.annotation_item_syncing = False
@@ -193,12 +195,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.redo_stack = []
         self.max_history_steps = 20
         self.scene.state_changed.connect(self.push_state)
+        self._breathing_phase = 0.0
+        self._breathing_timer = QTimer(self)
+        self._breathing_timer.setInterval(60)
+        self._breathing_timer.timeout.connect(self._tick_breathing_highlight)
 
         self._connect_signals()
         self._update_file_grid_metrics()
         self._setup_shortcuts()
         self.formatWidget.set_format(self.current_format)
         self.themeWidget.set_theme(self.current_theme)
+        self.actionBreathingHighlight.setChecked(self.breathing_highlight_enabled)
+        self.set_breathing_highlight_enabled(self.breathing_highlight_enabled, persist=False)
         self._set_mode(CanvasMode.RECT)
         self._connect_system_theme_signal()
         self.apply_theme(self.current_theme)
@@ -209,6 +217,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _connect_signals(self):
         self.actionOpen.triggered.connect(self.open_dir)
         self.actionSave.triggered.connect(lambda checked=False: self.save_annotation(self.current_format))
+        self.actionBreathingHighlight.toggled.connect(self.set_breathing_highlight_enabled)
 
         self.formatWidget.format_changed.connect(self.set_current_format)
         self.themeWidget.theme_changed.connect(self.apply_theme)
@@ -260,6 +269,40 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             )
 
         self.btnHelp.clicked.connect(self.show_help_dialog)
+
+    def _settings_bool(self, key, default=False):
+        value = self.settings.value(key, default)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.lower() in ("1", "true", "yes", "on")
+        return bool(value)
+
+    def set_breathing_highlight_enabled(self, enabled, persist=True):
+        self.breathing_highlight_enabled = bool(enabled)
+        BaseShape.breathing_enabled = self.breathing_highlight_enabled
+        if self.breathing_highlight_enabled:
+            if not self._breathing_timer.isActive():
+                self._breathing_timer.start()
+        else:
+            self._breathing_timer.stop()
+            BaseShape.breathing_alpha = BaseShape.fill_alpha
+            self._refresh_breathing_highlight()
+        if persist:
+            self.settings.setValue("breathing_highlight", self.breathing_highlight_enabled)
+
+    def _tick_breathing_highlight(self):
+        self._breathing_phase = (self._breathing_phase + 0.16) % (math.pi * 2)
+        wave = (math.sin(self._breathing_phase) + 1.0) / 2.0
+        BaseShape.breathing_alpha = int(BaseShape.fill_alpha + wave * 60)
+        self._refresh_breathing_highlight()
+
+    def _refresh_breathing_highlight(self):
+        if not hasattr(self, "scene") or self.scene is None:
+            return
+        for item in self.scene.items():
+            if isinstance(item, (RectShape, PolyShape, RotatedRectShape)):
+                item.refresh_breathing_brush()
 
     def _setup_shortcuts(self):
         self._shortcuts = []

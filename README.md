@@ -11,15 +11,10 @@
 系统基于 PySide6 构建，集成了最新一代的 **Segment Anything Model 3 (SAM3)**，基于 SAM3 的**点提示与提示词提示**功能，我于是开发了智能点选和提示词选取功能，当系统开启了 SAM3 智能标注功能时候，可以智能<font color=#FFA500>**点选**</font>进行标注或者<font color=#FFA500>**提示词**</font>自动分割，除了点（Point）标注不可以使用 SAM3 智能标注，剩下的➡️矩形（HBB）、多边形（Polygon）、 OBB 旋转框标注都支持开启智能标注，标注完系统还➡️<font color=#FFA500>支持数据集转换和划分。</font>
 
 
-| <font color = #FF0000>功能 | 界面演示                                |
-| -------------------------- | --------------------------------------- |
-| 多边形标注—点选            | ![在这里插入图片描述](assets/img.png)   |
-| 多边形标注—点选结果        | ![在这里插入图片描述](assets/img_1.png) |
-| obb标注—点选               | ![在这里插入图片描述](assets/img_2.png) |
-| obb标注—点选结果           | ![在这里插入图片描述](assets/img_3.png) |
-| 目标检测—点选结果          | ![在这里插入图片描述](assets/img_4.png) |
-| 目标检测—提示词结果        | ![在这里插入图片描述](assets/img_5.png) |
-| 数据集处理系统             | ![在这里插入图片描述](assets/img_6.png) |
+| <font color = #FF0000>功能 | 界面演示 |
+| -------------------------- | -------- |
+| 紧凑标注工作台             | ![LuoHuaLabel 紧凑标注工作台](assets/readme_main_ui.png) |
+| 数据集处理系统             | ![LuoHuaLabel 数据集处理系统](assets/readme_dataset_tool.png) |
 
 
 

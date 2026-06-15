@@ -19,7 +19,7 @@ class FormatSelectorWidget(QWidget):
         layout.setSpacing(6)
         self.label = QLabel("标注格式")
         self.label.setObjectName("toolbarFieldLabel")
-        self.btn = QPushButton("YOLO ▾")
+        self.btn = QPushButton("YOLO")
         self.btn.setObjectName("toolbarSelectButton")
         self.menu = QMenu(self)
         self.act_json = QAction("JSON", self)
@@ -31,17 +31,17 @@ class FormatSelectorWidget(QWidget):
         self.btn.setMenu(self.menu)
         layout.addWidget(self.label)
         layout.addWidget(self.btn)
-        self.act_json.triggered.connect(lambda: self._on_format_selected("json", "JSON ▾"))
-        self.act_yolo.triggered.connect(lambda: self._on_format_selected("yolo", "YOLO ▾"))
-        self.act_xml.triggered.connect(lambda: self._on_format_selected("xml", "XML ▾"))
+        self.act_json.triggered.connect(lambda: self._on_format_selected("json", "JSON"))
+        self.act_yolo.triggered.connect(lambda: self._on_format_selected("yolo", "YOLO"))
+        self.act_xml.triggered.connect(lambda: self._on_format_selected("xml", "XML"))
 
     def _on_format_selected(self, fmt, text):
         self.btn.setText(text)
         self.format_changed.emit(fmt)
 
     def set_format(self, fmt):
-        text_map = {"json": "JSON ▾", "yolo": "YOLO ▾", "xml": "XML ▾"}
-        self.btn.setText(text_map.get(fmt, "YOLO ▾"))
+        text_map = {"json": "JSON", "yolo": "YOLO", "xml": "XML"}
+        self.btn.setText(text_map.get(fmt, "YOLO"))
 
 
 class ThemeSelectorWidget(QWidget):
@@ -194,6 +194,10 @@ class Ui_MainWindow(object):
         self.actionPoint.setToolTip("点标注 (T)")
         self.actionRBox = QAction("旋转框", MainWindow)
         self.actionRBox.setToolTip("旋转框标注 (O)")
+        self.actionBreathingHighlight = QAction("呼吸高亮", MainWindow)
+        self.actionBreathingHighlight.setToolTip("开关标注框内部透明度呼吸高亮")
+        self.actionBreathingHighlight.setCheckable(True)
+        self.actionBreathingHighlight.setChecked(True)
         self.actionToggleRightPanel = QAction("右侧面板", MainWindow)
         self.actionToggleRightPanel.setToolTip("显示或隐藏右侧管理面板")
         self.actionToggleRightPanel.setCheckable(True)
@@ -212,6 +216,7 @@ class Ui_MainWindow(object):
         self.toolBar.addAction(self.actionPoly)
         self.toolBar.addAction(self.actionPoint)
         self.toolBar.addAction(self.actionRBox)
+        self.toolBar.addAction(self.actionBreathingHighlight)
         self.toolBar.addSeparator()
         self.formatWidget = FormatSelectorWidget()
         self.toolBar.addWidget(self.formatWidget)
