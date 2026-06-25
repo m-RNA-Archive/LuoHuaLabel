@@ -576,16 +576,16 @@ class PromptChipSelector(QWidget):
         self.chip_scroll = QScrollArea()
         self.chip_scroll.setObjectName("promptChipScroll")
         self.chip_scroll.setFrameShape(QFrame.NoFrame)
-        self.chip_scroll.setWidgetResizable(False)
+        self.chip_scroll.setWidgetResizable(True)
         self.chip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.chip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.chip_scroll.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.chip_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.chip_scroll.setMinimumWidth(0)
         self.chip_scroll.setFixedHeight(30)
-        self.chip_scroll.setVisible(False)
 
         self.chip_host = QWidget()
         self.chip_host.setObjectName("promptChipHost")
-        self.chip_host.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.chip_host.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
         self.chip_layout = QHBoxLayout(self.chip_host)
         self.chip_layout.setContentsMargins(0, 0, 0, 0)
         self.chip_layout.setSpacing(5)
@@ -600,7 +600,7 @@ class PromptChipSelector(QWidget):
         self.input.setPlaceholderText("输入或选择提示词，如 dog")
         self.input.textChanged.connect(self._rebuild_popup_options)
         self.input.returnPressed.connect(self._commit_typed_prompt)
-        self.outer_layout.addWidget(self.input)
+        self.chip_layout.addWidget(self.input, 1)
         self.submit_button = None
         self.installEventFilter(self)
         self.input.installEventFilter(self)
@@ -622,10 +622,6 @@ class PromptChipSelector(QWidget):
 
     def minimumSizeHint(self):
         return QSize(260, 38)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._update_chip_scroll_width()
 
     def attach_submit_button(self, button):
         self.submit_button = button
@@ -763,17 +759,7 @@ class PromptChipSelector(QWidget):
 
         self.input.setPlaceholderText("输入提示词并回车" if self._selected else self._default_placeholder)
         self.chip_host.adjustSize()
-        self._update_chip_scroll_width()
         QTimer.singleShot(0, self._scroll_chips_to_end)
-
-    def _update_chip_scroll_width(self):
-        has_chips = bool(self._selected)
-        self.chip_scroll.setVisible(has_chips)
-        if not has_chips:
-            return
-        available_width = max(260, self.width())
-        max_chip_width = min(420, max(160, int(available_width * 0.45)))
-        self.chip_scroll.setMaximumWidth(max_chip_width)
 
     def _scroll_chips_to_end(self):
         if not hasattr(self, "chip_scroll"):
