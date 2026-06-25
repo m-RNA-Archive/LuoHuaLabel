@@ -285,13 +285,15 @@ QScrollArea#promptChipScroll QScrollBar::sub-line:vertical {
     height: 0px;
 }
 
-QLineEdit#promptChipInput {
+QTextEdit#promptChipInput {
     background: transparent;
     border: 0px;
     color: #0f172a;
     min-height: 24px;
     min-width: 190px;
     padding: 0px 4px;
+    selection-background-color: #bfdbfe;
+    selection-color: #0f172a;
 }
 
 QPushButton#promptReferenceButton {

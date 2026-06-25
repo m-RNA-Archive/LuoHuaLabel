@@ -9,12 +9,13 @@ from PySide6.QtWidgets import (
     QComboBox, QLineEdit, QTextEdit, QPlainTextEdit,
     QPushButton, QHBoxLayout, QTreeWidgetItem, QAbstractSpinBox, QSplashScreen,
     QProgressBar, QStyledItemDelegate, QStyle, QStyleOptionViewItem, QWidget,
-    QFrame, QToolButton, QScrollArea, QSizePolicy, QLayout
+    QFrame, QToolButton, QScrollArea, QSizePolicy
 )
-from PySide6.QtCore import Qt, QPointF, QRectF, QRect, QSettings, QSize, QTimer, QEvent, Signal
+from PySide6.QtCore import Qt, QObject, QPointF, QRectF, QSettings, QSize, QSizeF, QTimer, QEvent, Signal
 from PySide6.QtGui import (
     QPolygonF, QColor, QBrush, QPixmap, QIcon, QPalette, QCursor, QPainter, QPen,
-    QShortcut, QKeySequence, QDesktopServices, QFont, QPainterPath, QLinearGradient
+    QShortcut, QKeySequence, QDesktopServices, QFont, QFontMetrics, QPainterPath,
+    QLinearGradient, QTextCharFormat, QTextCursor, QTextFormat, QTextObjectInterface
 )
 from PySide6.QtCore import QUrl
 
@@ -542,86 +543,161 @@ class PromptOptionRow(QFrame):
         return (color.red() * 0.299 + color.green() * 0.587 + color.blue() * 0.114) > 210
 
 
-class PromptFlowLayout(QLayout):
-    def __init__(self, parent=None, margin=0, h_spacing=6, v_spacing=6):
+PROMPT_TOKEN_OBJECT_TYPE = QTextFormat.UserObject + 31
+PROMPT_TOKEN_KEY_PROPERTY = QTextFormat.UserProperty + 31
+PROMPT_TOKEN_LABEL_PROPERTY = QTextFormat.UserProperty + 32
+PROMPT_TOKEN_PROMPT_PROPERTY = QTextFormat.UserProperty + 33
+PROMPT_TOKEN_COLOR_PROPERTY = QTextFormat.UserProperty + 34
+PROMPT_TOKEN_CHAR = "\ufffc"
+
+
+class PromptTokenObject(QObject, QTextObjectInterface):
+    def intrinsicSize(self, doc, pos_in_document, fmt):
+        prompt = str(fmt.property(PROMPT_TOKEN_PROMPT_PROPERTY) or "")
+        metrics = QFontMetrics(doc.defaultFont())
+        width = min(metrics.horizontalAdvance(prompt), 260) + 30
+        return QSizeF(max(42, width), 22)
+
+    def drawObject(self, painter, rect, doc, pos_in_document, fmt):
+        prompt = str(fmt.property(PROMPT_TOKEN_PROMPT_PROPERTY) or "")
+        color = QColor(str(fmt.property(PROMPT_TOKEN_COLOR_PROPERTY) or "#22c55e"))
+        metrics = QFontMetrics(doc.defaultFont())
+        icon_rect = QRectF(rect.left() + 3, rect.top() + 5, 10, 10)
+        ring = QColor("#64748b") if self._is_light_color(color) else color.darker(135)
+
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setPen(QPen(ring, 1.4))
+        painter.setBrush(QBrush(color))
+        painter.drawEllipse(icon_rect)
+
+        text_rect = QRectF(rect.left() + 18, rect.top(), rect.width() - 24, rect.height())
+        painter.setFont(doc.defaultFont())
+        text = metrics.elidedText(prompt, Qt.ElideRight, max(24, int(text_rect.width())))
+        palette = QApplication.instance().palette()
+        painter.setPen(palette.text().color())
+        painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, text)
+        painter.restore()
+
+    def _is_light_color(self, color):
+        return (color.red() * 0.299 + color.green() * 0.587 + color.blue() * 0.114) > 210
+
+
+class PromptInlineEdit(QTextEdit):
+    returnPressed = Signal()
+    tokensChanged = Signal()
+
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self._items = []
-        self._h_spacing = h_spacing
-        self._v_spacing = v_spacing
-        self.setContentsMargins(margin, margin, margin, margin)
+        self._token_object = PromptTokenObject(self)
+        self._syncing = False
+        self.document().documentLayout().registerHandler(PROMPT_TOKEN_OBJECT_TYPE, self._token_object)
+        self.setAcceptRichText(False)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setLineWrapMode(QTextEdit.WidgetWidth)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setTabChangesFocus(True)
+        self.document().setDocumentMargin(0)
+        self.document().contentsChanged.connect(self._emit_tokens_changed)
 
-    def addItem(self, item):
-        self._items.append(item)
-
-    def count(self):
-        return len(self._items)
-
-    def itemAt(self, index):
-        if 0 <= index < len(self._items):
-            return self._items[index]
-        return None
-
-    def takeAt(self, index):
-        if 0 <= index < len(self._items):
-            return self._items.pop(index)
-        return None
-
-    def expandingDirections(self):
-        return Qt.Orientations(Qt.Orientation(0))
-
-    def hasHeightForWidth(self):
-        return True
-
-    def heightForWidth(self, width):
-        return self._do_layout(QRect(0, 0, width, 0), True)
-
-    def setGeometry(self, rect):
-        super().setGeometry(rect)
-        self._do_layout(rect, False)
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter) and not (event.modifiers() & Qt.ShiftModifier):
+            self.returnPressed.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def sizeHint(self):
-        return self.minimumSize()
+        return QSize(420, 24)
 
-    def minimumSize(self):
-        size = QSize()
-        for item in self._items:
-            size = size.expandedTo(item.minimumSize())
-        left, top, right, bottom = self.getContentsMargins()
-        size += QSize(left + right, top + bottom)
-        return size
+    def minimumSizeHint(self):
+        return QSize(260, 24)
 
-    def _do_layout(self, rect, test_only):
-        left, top, right, bottom = self.getContentsMargins()
-        effective = rect.adjusted(left, top, -right, -bottom)
-        x = effective.x()
-        y = effective.y()
-        line_height = 0
-        max_width = max(1, effective.width())
+    def free_text(self):
+        return self.toPlainText().replace(PROMPT_TOKEN_CHAR, "").strip()
 
-        for item in self._items:
-            widget = item.widget()
-            hint = item.sizeHint()
-            item_width = hint.width()
-            if widget is not None and widget.objectName() == "promptChipInput":
-                item_width = max(190, max_width - (x - effective.x()))
-            item_width = min(item_width, max_width)
-            next_x = x + item_width + self._h_spacing
-            if x > effective.x() and next_x - self._h_spacing > effective.right() + 1:
-                x = effective.x()
-                y += line_height + self._v_spacing
-                if widget is not None and widget.objectName() == "promptChipInput":
-                    item_width = max(190, max_width)
-                    item_width = min(item_width, max_width)
-                next_x = x + item_width + self._h_spacing
-                line_height = 0
+    def token_keys(self):
+        keys = []
+        block = self.document().begin()
+        while block.isValid():
+            fragment = block.begin()
+            while not fragment.atEnd():
+                text_fragment = fragment.fragment()
+                if text_fragment.isValid():
+                    fmt = text_fragment.charFormat()
+                    if fmt.objectType() == PROMPT_TOKEN_OBJECT_TYPE:
+                        key = str(fmt.property(PROMPT_TOKEN_KEY_PROPERTY) or "")
+                        if key:
+                            keys.extend([key] * text_fragment.text().count(PROMPT_TOKEN_CHAR))
+                fragment += 1
+            block = block.next()
+        return keys
 
-            if not test_only:
-                item.setGeometry(QRect(QPointF(x, y).toPoint(), QSize(item_width, hint.height())))
+    def set_tokens_and_text(self, entries, text=""):
+        self._syncing = True
+        try:
+            self.clear()
+            cursor = self.textCursor()
+            cursor.beginEditBlock()
+            for entry in entries:
+                self._insert_token(cursor, entry)
+            if text:
+                if entries:
+                    cursor.insertText(" ")
+                cursor.insertText(text)
+            cursor.endEditBlock()
+            self.setTextCursor(cursor)
+        finally:
+            self._syncing = False
+        self.tokensChanged.emit()
 
-            x = next_x
-            line_height = max(line_height, hint.height())
+    def insert_prompt_token(self, entry):
+        cursor = self.textCursor()
+        cursor.beginEditBlock()
+        self._insert_token(cursor, entry)
+        cursor.endEditBlock()
+        self.setTextCursor(cursor)
 
-        return y + line_height - rect.y() + bottom
+    def remove_prompt_token(self, key):
+        removed = False
+        cursor = QTextCursor(self.document())
+        cursor.beginEditBlock()
+        block = self.document().begin()
+        while block.isValid():
+            fragment = block.begin()
+            while not fragment.atEnd():
+                text_fragment = fragment.fragment()
+                if text_fragment.isValid():
+                    fmt = text_fragment.charFormat()
+                    if fmt.objectType() == PROMPT_TOKEN_OBJECT_TYPE and str(fmt.property(PROMPT_TOKEN_KEY_PROPERTY) or "") == key:
+                        start = text_fragment.position()
+                        cursor.setPosition(start)
+                        cursor.setPosition(start + text_fragment.length(), QTextCursor.KeepAnchor)
+                        cursor.removeSelectedText()
+                        removed = True
+                        break
+                fragment += 1
+            if removed:
+                break
+            block = block.next()
+        cursor.endEditBlock()
+        return removed
+
+    def _insert_token(self, cursor, entry):
+        label = (entry.get("label") or "").strip()
+        prompt = (entry.get("prompt") or "").strip()
+        fmt = QTextCharFormat()
+        fmt.setObjectType(PROMPT_TOKEN_OBJECT_TYPE)
+        fmt.setProperty(PROMPT_TOKEN_KEY_PROPERTY, f"{label}\0{prompt}")
+        fmt.setProperty(PROMPT_TOKEN_LABEL_PROPERTY, label)
+        fmt.setProperty(PROMPT_TOKEN_PROMPT_PROPERTY, prompt)
+        fmt.setProperty(PROMPT_TOKEN_COLOR_PROPERTY, entry.get("color") or "#22c55e")
+        cursor.insertText(PROMPT_TOKEN_CHAR, fmt)
+
+    def _emit_tokens_changed(self):
+        if not self._syncing:
+            self.tokensChanged.emit()
 
 
 class PromptChipSelector(QWidget):
@@ -656,32 +732,15 @@ class PromptChipSelector(QWidget):
         self.add_button.setToolTip("添加提示词")
         self.add_button.clicked.connect(self.show_prompt_popup)
 
-        self.chip_scroll = QScrollArea()
-        self.chip_scroll.setObjectName("promptChipScroll")
-        self.chip_scroll.setFrameShape(QFrame.NoFrame)
-        self.chip_scroll.setWidgetResizable(True)
-        self.chip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.chip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.chip_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        self.chip_scroll.setMinimumWidth(0)
-
-        self.chip_host = QWidget()
-        self.chip_host.setObjectName("promptChipHost")
-        self.chip_host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        self.chip_layout = PromptFlowLayout(self.chip_host, h_spacing=6, v_spacing=4)
-        self.chip_layout.setContentsMargins(0, 0, 0, 0)
-        self.chip_scroll.setWidget(self.chip_host)
-        self.outer_layout.addWidget(self.chip_scroll, 1)
-
-        self.input = QLineEdit()
+        self.input = PromptInlineEdit()
         self.input.setObjectName("promptChipInput")
-        self.input.setFrame(False)
         self.input.setMinimumWidth(190)
-        self.input.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+        self.input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self.input.setPlaceholderText("输入或选择提示词，如 dog")
         self.input.textChanged.connect(self._rebuild_popup_options)
+        self.input.tokensChanged.connect(self._sync_selected_from_editor)
         self.input.returnPressed.connect(self._commit_typed_prompt)
-        self.chip_layout.addWidget(self.input)
+        self.outer_layout.addWidget(self.input, 1)
         self.mode_button = None
         self.submit_button = None
         self.reference_button = None
@@ -698,22 +757,11 @@ class PromptChipSelector(QWidget):
 
         self.installEventFilter(self)
         self.input.installEventFilter(self)
-        self.chip_host.installEventFilter(self)
-        self.chip_scroll.viewport().installEventFilter(self)
+        self.input.viewport().installEventFilter(self)
         self._update_content_height()
 
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.KeyPress:
-            if watched is self.input and self._handle_input_delete_key(event):
-                return True
-            if isinstance(watched, QToolButton) and watched.objectName() == "promptChip":
-                if event.key() in (Qt.Key_Backspace, Qt.Key_Delete):
-                    key = watched.property("promptKey")
-                    if key:
-                        self._remove_prompt_key(key)
-                        event.accept()
-                        return True
-        watched_targets = (self, self.input, self.chip_host, self.chip_scroll.viewport())
+        watched_targets = (self, self.input, self.input.viewport())
         if watched in watched_targets and event.type() == QEvent.MouseButtonPress:
             if event.button() == Qt.LeftButton:
                 QTimer.singleShot(0, self.show_prompt_popup)
@@ -764,10 +812,10 @@ class PromptChipSelector(QWidget):
         self._update_content_height()
 
     def currentText(self):
-        return self.input.text().strip()
+        return self.input.free_text()
 
     def setEditText(self, text):
-        self.input.setText(text or "")
+        self.input.set_tokens_and_text(self._selected_sorted(), text or "")
 
     def setPlaceholderText(self, text):
         self._default_placeholder = text or ""
@@ -777,7 +825,7 @@ class PromptChipSelector(QWidget):
     def clear(self):
         self._selected = []
         self.input.clear()
-        self._render_chips()
+        self._update_content_height()
         self.selection_changed.emit()
 
     def set_current_label(self, label):
@@ -819,8 +867,7 @@ class PromptChipSelector(QWidget):
         if not label or not prompt:
             return
         self._selected = [self._entry_for(label, prompt)]
-        self.input.clear()
-        self._render_chips()
+        self._render_chips("")
         self.selection_changed.emit()
 
     def add_prompt(self, label, prompt):
@@ -830,16 +877,15 @@ class PromptChipSelector(QWidget):
             return False
         key = self._make_key(label, prompt)
         if key in {self._entry_key(entry) for entry in self._selected}:
-            self.input.clear()
+            self.input.set_tokens_and_text(self._selected_sorted(), "")
             return False
         self._selected.append(self._entry_for(label, prompt))
-        self.input.clear()
-        self._render_chips()
+        self._render_chips("")
         self.selection_changed.emit()
         return True
 
     def _commit_typed_prompt(self):
-        text = self.input.text().strip()
+        text = self.currentText()
         if text and self._current_label:
             self.add_prompt(self._current_label, text)
 
@@ -869,78 +915,45 @@ class PromptChipSelector(QWidget):
             ),
         )
 
-    def _render_chips(self):
-        while self.chip_layout.count():
-            item = self.chip_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None and widget is not self.input:
-                widget.deleteLater()
-
-        for entry in self._selected_sorted():
-            chip = QToolButton()
-            chip.setObjectName("promptChip")
-            prompt = entry["prompt"]
-            label = entry["label"]
-            color = QColor(entry.get("color") or "#22c55e")
-            chip.setIcon(QIcon(self._prompt_token_icon(color)))
-            chip.setIconSize(QSize(14, 14))
-            chip.setText(f"{prompt}  ×")
-            chip.setToolTip(f"{label} -> {prompt}")
-            chip.setAutoRaise(False)
-            chip.setMaximumWidth(300)
-            key = self._entry_key(entry)
-            chip.setProperty("promptKey", key)
-            chip.setFocusPolicy(Qt.StrongFocus)
-            chip.installEventFilter(self)
-            chip.clicked.connect(lambda _checked=False, key=key: self._remove_prompt_key(key))
-            self.chip_layout.addWidget(chip)
-        self.chip_layout.addWidget(self.input)
-
+    def _render_chips(self, free_text=None):
+        if free_text is None:
+            free_text = self.input.free_text()
+        self.input.set_tokens_and_text(self._selected_sorted(), free_text)
         self.input.setPlaceholderText("输入提示词并回车" if self._selected else self._default_placeholder)
         self._update_content_height()
 
     def _is_light_color(self, color):
         return (color.red() * 0.299 + color.green() * 0.587 + color.blue() * 0.114) > 210
 
-    def _prompt_token_icon(self, color):
-        pixmap = QPixmap(14, 14)
-        pixmap.fill(Qt.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        fill = QColor(color)
-        ring = QColor("#64748b") if self._is_light_color(fill) else fill.darker(135)
-        painter.setPen(QPen(ring, 1.5))
-        painter.setBrush(QBrush(fill))
-        painter.drawEllipse(QRectF(2.0, 2.0, 10.0, 10.0))
-        painter.end()
-        return pixmap
+    def _sync_selected_from_editor(self):
+        keys = []
+        seen = set()
+        for key in self.input.token_keys():
+            if key not in seen:
+                seen.add(key)
+                keys.append(key)
 
-    def _handle_input_delete_key(self, event):
-        if event.key() not in (Qt.Key_Backspace, Qt.Key_Delete):
-            return False
-        if self.input.text():
-            return False
-        if not self._remove_last_prompt():
-            return False
-        event.accept()
-        return True
-
-    def _remove_last_prompt(self):
-        entries = self._selected_sorted()
-        if not entries:
-            return False
-        self._remove_prompt_key(self._entry_key(entries[-1]))
-        return True
+        by_key = {self._entry_key(entry): entry for entry in self._selected}
+        for option in self._options:
+            by_key[self._entry_key(option)] = option
+        next_selected = [dict(by_key[key]) for key in keys if key in by_key]
+        if [self._entry_key(entry) for entry in next_selected] == [self._entry_key(entry) for entry in self._selected]:
+            self._update_content_height()
+            return
+        self._selected = next_selected
+        if self._popup and self._popup.isVisible():
+            self._rebuild_popup_options()
+        self._update_content_height()
+        self.selection_changed.emit()
 
     def _update_content_height(self):
-        if not hasattr(self, "chip_scroll"):
+        if not hasattr(self, "input"):
             return
-        viewport_width = max(1, self.chip_scroll.viewport().width())
-        content_height = max(self._row_height, self.chip_layout.heightForWidth(viewport_width))
+        doc_height = int(math.ceil(self.input.document().size().height()))
+        content_height = max(self._row_height, doc_height + 2)
         max_height = self._row_height * self._max_visible_rows + 4 * (self._max_visible_rows - 1)
         visible_height = min(content_height, max_height)
-        self.chip_host.setMinimumHeight(content_height)
-        self.chip_scroll.setFixedHeight(visible_height)
+        self.input.setFixedHeight(visible_height)
         margins = self.outer_layout.contentsMargins()
         total_height = visible_height + self._action_height + self.outer_layout.spacing() + margins.top() + margins.bottom()
         self.setMinimumHeight(total_height)
@@ -952,10 +965,10 @@ class PromptChipSelector(QWidget):
         self._update_content_height()
 
     def _remove_prompt_key(self, key):
+        if self.input.remove_prompt_token(key):
+            return
         self._selected = [entry for entry in self._selected if self._entry_key(entry) != key]
         self._render_chips()
-        if self._popup and self._popup.isVisible():
-            self._rebuild_popup_options()
         self.selection_changed.emit()
 
     def show_prompt_popup(self):
@@ -1033,7 +1046,7 @@ class PromptChipSelector(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        query = self.input.text().strip().lower()
+        query = self.currentText().lower()
         selected_keys = {self._entry_key(entry) for entry in self._selected}
         grouped = {}
         for option in self._options:
