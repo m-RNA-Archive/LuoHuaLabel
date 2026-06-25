@@ -11,11 +11,11 @@ from PySide6.QtWidgets import (
     QProgressBar, QStyledItemDelegate, QStyle, QStyleOptionViewItem, QWidget,
     QFrame, QToolButton, QScrollArea, QSizePolicy
 )
-from PySide6.QtCore import Qt, QObject, QPointF, QRectF, QSettings, QSize, QSizeF, QTimer, QEvent, Signal
+from PySide6.QtCore import Qt, QPointF, QRectF, QSettings, QSize, QTimer, QEvent, Signal
 from PySide6.QtGui import (
     QPolygonF, QColor, QBrush, QPixmap, QIcon, QPalette, QCursor, QPainter, QPen,
-    QShortcut, QKeySequence, QDesktopServices, QFont, QFontMetrics, QPainterPath,
-    QLinearGradient, QTextCharFormat, QTextCursor, QTextFormat, QTextObjectInterface
+    QShortcut, QKeySequence, QDesktopServices, QFont, QPainterPath,
+    QLinearGradient, QTextCharFormat, QTextCursor, QTextFormat
 )
 from PySide6.QtCore import QUrl
 
@@ -543,44 +543,11 @@ class PromptOptionRow(QFrame):
         return (color.red() * 0.299 + color.green() * 0.587 + color.blue() * 0.114) > 210
 
 
-PROMPT_TOKEN_OBJECT_TYPE = QTextFormat.UserObject + 31
 PROMPT_TOKEN_KEY_PROPERTY = QTextFormat.UserProperty + 31
 PROMPT_TOKEN_LABEL_PROPERTY = QTextFormat.UserProperty + 32
 PROMPT_TOKEN_PROMPT_PROPERTY = QTextFormat.UserProperty + 33
 PROMPT_TOKEN_COLOR_PROPERTY = QTextFormat.UserProperty + 34
-PROMPT_TOKEN_CHAR = "\ufffc"
-
-
-class PromptTokenObject(QObject, QTextObjectInterface):
-    def intrinsicSize(self, doc, pos_in_document, fmt):
-        prompt = str(fmt.property(PROMPT_TOKEN_PROMPT_PROPERTY) or "")
-        metrics = QFontMetrics(doc.defaultFont())
-        width = min(metrics.horizontalAdvance(prompt), 260) + 30
-        return QSizeF(max(42, width), 22)
-
-    def drawObject(self, painter, rect, doc, pos_in_document, fmt):
-        prompt = str(fmt.property(PROMPT_TOKEN_PROMPT_PROPERTY) or "")
-        color = QColor(str(fmt.property(PROMPT_TOKEN_COLOR_PROPERTY) or "#22c55e"))
-        metrics = QFontMetrics(doc.defaultFont())
-        icon_rect = QRectF(rect.left() + 3, rect.top() + 5, 10, 10)
-        ring = QColor("#64748b") if self._is_light_color(color) else color.darker(135)
-
-        painter.save()
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setPen(QPen(ring, 1.4))
-        painter.setBrush(QBrush(color))
-        painter.drawEllipse(icon_rect)
-
-        text_rect = QRectF(rect.left() + 18, rect.top(), rect.width() - 24, rect.height())
-        painter.setFont(doc.defaultFont())
-        text = metrics.elidedText(prompt, Qt.ElideRight, max(24, int(text_rect.width())))
-        palette = QApplication.instance().palette()
-        painter.setPen(palette.text().color())
-        painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, text)
-        painter.restore()
-
-    def _is_light_color(self, color):
-        return (color.red() * 0.299 + color.green() * 0.587 + color.blue() * 0.114) > 210
+PROMPT_TOKEN_MARK = "\u25cf"
 
 
 class PromptInlineEdit(QTextEdit):
@@ -589,9 +556,7 @@ class PromptInlineEdit(QTextEdit):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._token_object = PromptTokenObject(self)
         self._syncing = False
-        self.document().documentLayout().registerHandler(PROMPT_TOKEN_OBJECT_TYPE, self._token_object)
         self.setAcceptRichText(False)
         self.setFrameShape(QFrame.NoFrame)
         self.setLineWrapMode(QTextEdit.WidgetWidth)
@@ -606,7 +571,27 @@ class PromptInlineEdit(QTextEdit):
             self.returnPressed.emit()
             event.accept()
             return
+        if event.key() in (Qt.Key_Backspace, Qt.Key_Delete) and not self.textCursor().hasSelection():
+            position = self.textCursor().position()
+            lookup = position - 1 if event.key() == Qt.Key_Backspace else position
+            if self._remove_token_at(lookup):
+                event.accept()
+                return
+        if event.text():
+            self.setCurrentCharFormat(QTextCharFormat())
         super().keyPressEvent(event)
+
+    def inputMethodEvent(self, event):
+        self.setCurrentCharFormat(QTextCharFormat())
+        super().inputMethodEvent(event)
+
+    def insertFromMimeData(self, source):
+        self.setCurrentCharFormat(QTextCharFormat())
+        super().insertFromMimeData(source)
+
+    def insertPlainText(self, text):
+        self.setCurrentCharFormat(QTextCharFormat())
+        super().insertPlainText(text)
 
     def sizeHint(self):
         return QSize(420, 24)
@@ -615,23 +600,15 @@ class PromptInlineEdit(QTextEdit):
         return QSize(260, 24)
 
     def free_text(self):
-        return self.toPlainText().replace(PROMPT_TOKEN_CHAR, "").strip()
+        text = self.toPlainText()
+        for start, end, _key in reversed(self._token_ranges()):
+            text = text[:start] + text[end:]
+        return text.strip()
 
     def token_keys(self):
         keys = []
-        block = self.document().begin()
-        while block.isValid():
-            fragment = block.begin()
-            while not fragment.atEnd():
-                text_fragment = fragment.fragment()
-                if text_fragment.isValid():
-                    fmt = text_fragment.charFormat()
-                    if fmt.objectType() == PROMPT_TOKEN_OBJECT_TYPE:
-                        key = str(fmt.property(PROMPT_TOKEN_KEY_PROPERTY) or "")
-                        if key:
-                            keys.extend([key] * text_fragment.text().count(PROMPT_TOKEN_CHAR))
-                fragment += 1
-            block = block.next()
+        for _start, _end, key in self._token_ranges():
+            keys.append(key)
         return keys
 
     def set_tokens_and_text(self, entries, text=""):
@@ -648,6 +625,7 @@ class PromptInlineEdit(QTextEdit):
                 cursor.insertText(text)
             cursor.endEditBlock()
             self.setTextCursor(cursor)
+            self.setCurrentCharFormat(QTextCharFormat())
         finally:
             self._syncing = False
         self.tokensChanged.emit()
@@ -658,11 +636,48 @@ class PromptInlineEdit(QTextEdit):
         self._insert_token(cursor, entry)
         cursor.endEditBlock()
         self.setTextCursor(cursor)
+        self.setCurrentCharFormat(QTextCharFormat())
 
     def remove_prompt_token(self, key):
-        removed = False
-        cursor = QTextCursor(self.document())
-        cursor.beginEditBlock()
+        for start, end, token_key in self._token_ranges():
+            if token_key == key:
+                cursor = self.textCursor()
+                cursor.setPosition(start)
+                cursor.setPosition(end, QTextCursor.KeepAnchor)
+                cursor.removeSelectedText()
+                self.setTextCursor(cursor)
+                return True
+        return False
+
+    def _insert_token(self, cursor, entry):
+        label = (entry.get("label") or "").strip()
+        prompt = (entry.get("prompt") or "").strip()
+        key = f"{label}\0{prompt}"
+        color = QColor(entry.get("color") or "#22c55e")
+
+        icon_format = self._token_format(key, label, prompt, color)
+        icon_format.setForeground(QBrush(color))
+        cursor.insertText(PROMPT_TOKEN_MARK, icon_format)
+
+        text_format = self._token_format(key, label, prompt, color)
+        text_format.setForeground(QBrush(self.palette().text().color()))
+        text_format.setFontWeight(QFont.DemiBold)
+        cursor.insertText(f" {prompt}  ", text_format)
+        cursor.setCharFormat(QTextCharFormat())
+
+    def _token_format(self, key, label, prompt, color):
+        fmt = QTextCharFormat()
+        fmt.setProperty(PROMPT_TOKEN_KEY_PROPERTY, key)
+        fmt.setProperty(PROMPT_TOKEN_LABEL_PROPERTY, label)
+        fmt.setProperty(PROMPT_TOKEN_PROMPT_PROPERTY, prompt)
+        fmt.setProperty(PROMPT_TOKEN_COLOR_PROPERTY, color.name())
+        return fmt
+
+    def _token_ranges(self):
+        ranges = []
+        current_key = None
+        current_start = -1
+        current_end = -1
         block = self.document().begin()
         while block.isValid():
             fragment = block.begin()
@@ -670,30 +685,42 @@ class PromptInlineEdit(QTextEdit):
                 text_fragment = fragment.fragment()
                 if text_fragment.isValid():
                     fmt = text_fragment.charFormat()
-                    if fmt.objectType() == PROMPT_TOKEN_OBJECT_TYPE and str(fmt.property(PROMPT_TOKEN_KEY_PROPERTY) or "") == key:
-                        start = text_fragment.position()
-                        cursor.setPosition(start)
-                        cursor.setPosition(start + text_fragment.length(), QTextCursor.KeepAnchor)
-                        cursor.removeSelectedText()
-                        removed = True
-                        break
+                    key = str(fmt.property(PROMPT_TOKEN_KEY_PROPERTY) or "")
+                    start = text_fragment.position()
+                    end = start + text_fragment.length()
+                    if key and key == current_key and start == current_end:
+                        current_end = end
+                    else:
+                        if current_key:
+                            ranges.append((current_start, current_end, current_key))
+                        current_key = key or None
+                        current_start = start if key else -1
+                        current_end = end if key else -1
                 fragment += 1
-            if removed:
-                break
             block = block.next()
-        cursor.endEditBlock()
-        return removed
+        if current_key:
+            ranges.append((current_start, current_end, current_key))
+        return ranges
 
-    def _insert_token(self, cursor, entry):
-        label = (entry.get("label") or "").strip()
-        prompt = (entry.get("prompt") or "").strip()
-        fmt = QTextCharFormat()
-        fmt.setObjectType(PROMPT_TOKEN_OBJECT_TYPE)
-        fmt.setProperty(PROMPT_TOKEN_KEY_PROPERTY, f"{label}\0{prompt}")
-        fmt.setProperty(PROMPT_TOKEN_LABEL_PROPERTY, label)
-        fmt.setProperty(PROMPT_TOKEN_PROMPT_PROPERTY, prompt)
-        fmt.setProperty(PROMPT_TOKEN_COLOR_PROPERTY, entry.get("color") or "#22c55e")
-        cursor.insertText(PROMPT_TOKEN_CHAR, fmt)
+    def _token_range_at(self, position):
+        if position < 0:
+            return None
+        for start, end, key in self._token_ranges():
+            if start <= position < end:
+                return start, end, key
+        return None
+
+    def _remove_token_at(self, position):
+        token_range = self._token_range_at(position)
+        if token_range is None:
+            return False
+        start, end, _key = token_range
+        cursor = self.textCursor()
+        cursor.setPosition(start)
+        cursor.setPosition(end, QTextCursor.KeepAnchor)
+        cursor.removeSelectedText()
+        self.setTextCursor(cursor)
+        return True
 
     def _emit_tokens_changed(self):
         if not self._syncing:
