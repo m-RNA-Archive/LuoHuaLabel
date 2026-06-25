@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QComboBox, QLineEdit, QTextEdit, QPlainTextEdit,
     QPushButton, QHBoxLayout, QTreeWidgetItem, QAbstractSpinBox, QSplashScreen,
     QProgressBar, QStyledItemDelegate, QStyle, QStyleOptionViewItem, QWidget,
-    QFrame, QToolButton, QScrollArea, QCheckBox, QSizePolicy
+    QFrame, QToolButton, QScrollArea, QSizePolicy
 )
 from PySide6.QtCore import Qt, QPointF, QRectF, QSettings, QSize, QTimer, QEvent, Signal
 from PySide6.QtGui import (
@@ -480,6 +480,67 @@ class LabelVisibilityItemDelegate(QStyledItemDelegate):
         return size
 
 
+class PromptOptionRow(QFrame):
+    toggled = Signal(dict, bool)
+
+    def __init__(self, entry, selected=False, parent=None):
+        super().__init__(parent)
+        self.entry = dict(entry)
+        self.selected = bool(selected)
+        self.setObjectName("promptPickerOptionRow")
+        self.setProperty("selected", self.selected)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumHeight(46)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(10)
+
+        color = QColor(self.entry.get("color") or "#22c55e")
+        self.color_dot = QLabel()
+        self.color_dot.setObjectName("promptPickerColorDot")
+        self.color_dot.setFixedSize(14, 14)
+        self.color_dot.setStyleSheet(
+            "QLabel#promptPickerColorDot {"
+            f"background-color: {color.name()};"
+            f"border: 2px solid {color.name()};"
+            "border-radius: 7px;"
+            "}"
+        )
+        layout.addWidget(self.color_dot)
+
+        text_layout = QVBoxLayout()
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(1)
+        self.prompt_label = QLabel(self.entry.get("prompt", ""))
+        self.prompt_label.setObjectName("promptPickerPromptText")
+        self.prompt_label.setWordWrap(False)
+        self.class_label = QLabel(self.entry.get("label", ""))
+        self.class_label.setObjectName("promptPickerClassText")
+        self.class_label.setWordWrap(False)
+        text_layout.addWidget(self.prompt_label)
+        text_layout.addWidget(self.class_label)
+        layout.addLayout(text_layout, 1)
+
+        self.check_label = QLabel("✓" if self.selected else "")
+        self.check_label.setObjectName("promptPickerCheck")
+        self.check_label.setAlignment(Qt.AlignCenter)
+        self.check_label.setFixedWidth(22)
+        layout.addWidget(self.check_label)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.selected = not self.selected
+            self.setProperty("selected", self.selected)
+            self.check_label.setText("✓" if self.selected else "")
+            self.style().unpolish(self)
+            self.style().polish(self)
+            self.toggled.emit(dict(self.entry), self.selected)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 class PromptChipSelector(QWidget):
     selection_changed = Signal()
 
@@ -488,6 +549,7 @@ class PromptChipSelector(QWidget):
         self.setObjectName("promptChipSelector")
         self._options = []
         self._selected = []
+        self._label_order = {}
         self._current_label = ""
         self._default_placeholder = "输入或选择提示词，如 dog"
         self._popup = None
@@ -572,12 +634,15 @@ class PromptChipSelector(QWidget):
     def set_prompt_options(self, options):
         selected_keys = [self._entry_key(entry) for entry in self._selected]
         self._options = []
+        self._label_order = {}
         seen = set()
         for option in options:
             label = (option.get("label") or "").strip()
             prompt = (option.get("prompt") or "").strip()
             if not label or not prompt:
                 continue
+            if label not in self._label_order:
+                self._label_order[label] = len(self._label_order)
             key = self._make_key(label, prompt)
             if key in seen:
                 continue
@@ -780,19 +845,15 @@ class PromptChipSelector(QWidget):
             layout.addStretch(1)
             return
 
-        for label in sorted(grouped, key=lambda text: text.lower()):
+        for label in sorted(grouped, key=lambda text: (self._label_order.get(text, 10_000), text.lower())):
             title = QLabel(label)
             title.setObjectName("promptPickerGroupTitle")
             layout.addWidget(title)
-            for option in grouped[label]:
-                check = QCheckBox(option["prompt"])
-                check.setObjectName("promptPickerOption")
-                check.setToolTip(f"{option['label']} -> {option['prompt']}")
-                check.setChecked(self._entry_key(option) in selected_keys)
-                check.toggled.connect(
-                    lambda checked, entry=dict(option): self._toggle_prompt_option(entry, checked)
-                )
-                layout.addWidget(check)
+            for option in sorted(grouped[label], key=lambda entry: entry["prompt"].lower()):
+                row = PromptOptionRow(option, self._entry_key(option) in selected_keys)
+                row.setToolTip(f"{option['label']} -> {option['prompt']}")
+                row.toggled.connect(self._toggle_prompt_option)
+                layout.addWidget(row)
         layout.addStretch(1)
 
     def _toggle_prompt_option(self, entry, checked):
