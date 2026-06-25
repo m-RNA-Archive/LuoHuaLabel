@@ -638,16 +638,16 @@ class PromptChipSelector(QWidget):
         self._popup = None
         self._popup_scroll = None
         self._options_host = None
-        self._max_visible_rows = 3
-        self._row_height = 30
-        self._action_height = 30
+        self._max_visible_rows = 10
+        self._row_height = 24
+        self._action_height = 28
 
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
         self.setMinimumWidth(260)
-        self.setMinimumHeight(74)
+        self.setMinimumHeight(64)
         self.outer_layout = QVBoxLayout(self)
-        self.outer_layout.setContentsMargins(12, 8, 8, 8)
-        self.outer_layout.setSpacing(6)
+        self.outer_layout.setContentsMargins(10, 6, 8, 6)
+        self.outer_layout.setSpacing(4)
 
         self.add_button = QToolButton()
         self.add_button.setObjectName("promptAddButton")
@@ -668,7 +668,7 @@ class PromptChipSelector(QWidget):
         self.chip_host = QWidget()
         self.chip_host.setObjectName("promptChipHost")
         self.chip_host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        self.chip_layout = PromptFlowLayout(self.chip_host, h_spacing=6, v_spacing=6)
+        self.chip_layout = PromptFlowLayout(self.chip_host, h_spacing=6, v_spacing=4)
         self.chip_layout.setContentsMargins(0, 0, 0, 0)
         self.chip_scroll.setWidget(self.chip_host)
         self.outer_layout.addWidget(self.chip_scroll, 1)
@@ -703,6 +703,16 @@ class PromptChipSelector(QWidget):
         self._update_content_height()
 
     def eventFilter(self, watched, event):
+        if event.type() == QEvent.KeyPress:
+            if watched is self.input and self._handle_input_delete_key(event):
+                return True
+            if isinstance(watched, QToolButton) and watched.objectName() == "promptChip":
+                if event.key() in (Qt.Key_Backspace, Qt.Key_Delete):
+                    key = watched.property("promptKey")
+                    if key:
+                        self._remove_prompt_key(key)
+                        event.accept()
+                        return True
         watched_targets = (self, self.input, self.chip_host, self.chip_scroll.viewport())
         if watched in watched_targets and event.type() == QEvent.MouseButtonPress:
             if event.button() == Qt.LeftButton:
@@ -724,8 +734,8 @@ class PromptChipSelector(QWidget):
         button.setObjectName("promptSubmitButton")
         button.setMinimumWidth(44)
         button.setMaximumWidth(88)
-        button.setMinimumHeight(30)
-        button.setMaximumHeight(30)
+        button.setMinimumHeight(28)
+        button.setMaximumHeight(28)
         self.action_layout.addWidget(button)
         self._update_content_height()
 
@@ -734,8 +744,8 @@ class PromptChipSelector(QWidget):
         button.setParent(self)
         button.setObjectName("promptModeButton")
         button.setAutoRaise(False)
-        button.setMinimumHeight(30)
-        button.setMaximumHeight(30)
+        button.setMinimumHeight(28)
+        button.setMaximumHeight(28)
         button.setMinimumWidth(74)
         button.setMaximumWidth(132)
         button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
@@ -746,8 +756,8 @@ class PromptChipSelector(QWidget):
         self.reference_button = button
         button.setParent(self)
         button.setObjectName("promptReferenceButton")
-        button.setMinimumHeight(30)
-        button.setMaximumHeight(30)
+        button.setMinimumHeight(28)
+        button.setMaximumHeight(28)
         button.setMinimumWidth(88)
         button.setMaximumWidth(118)
         self.action_layout.addWidget(button)
@@ -871,21 +881,18 @@ class PromptChipSelector(QWidget):
             chip.setObjectName("promptChip")
             prompt = entry["prompt"]
             label = entry["label"]
+            color = QColor(entry.get("color") or "#22c55e")
+            chip.setIcon(QIcon(self._prompt_token_icon(color)))
+            chip.setIconSize(QSize(14, 14))
             chip.setText(f"{prompt}  ×")
             chip.setToolTip(f"{label} -> {prompt}")
             chip.setAutoRaise(False)
-            chip.setMaximumWidth(320)
-            color = QColor(entry.get("color") or "#22c55e")
-            bg = QColor(color)
-            bg.setAlpha(42)
-            border = QColor("#64748b") if self._is_light_color(color) else QColor(color).darker(120)
-            chip.setStyleSheet(
-                "QToolButton#promptChip {"
-                f"background-color: {bg.name(QColor.HexArgb)};"
-                f"border: 2px solid {border.name()};"
-                "}"
-            )
-            chip.clicked.connect(lambda _checked=False, key=self._entry_key(entry): self._remove_prompt_key(key))
+            chip.setMaximumWidth(300)
+            key = self._entry_key(entry)
+            chip.setProperty("promptKey", key)
+            chip.setFocusPolicy(Qt.StrongFocus)
+            chip.installEventFilter(self)
+            chip.clicked.connect(lambda _checked=False, key=key: self._remove_prompt_key(key))
             self.chip_layout.addWidget(chip)
         self.chip_layout.addWidget(self.input)
 
@@ -895,12 +902,42 @@ class PromptChipSelector(QWidget):
     def _is_light_color(self, color):
         return (color.red() * 0.299 + color.green() * 0.587 + color.blue() * 0.114) > 210
 
+    def _prompt_token_icon(self, color):
+        pixmap = QPixmap(14, 14)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        fill = QColor(color)
+        ring = QColor("#64748b") if self._is_light_color(fill) else fill.darker(135)
+        painter.setPen(QPen(ring, 1.5))
+        painter.setBrush(QBrush(fill))
+        painter.drawEllipse(QRectF(2.0, 2.0, 10.0, 10.0))
+        painter.end()
+        return pixmap
+
+    def _handle_input_delete_key(self, event):
+        if event.key() not in (Qt.Key_Backspace, Qt.Key_Delete):
+            return False
+        if self.input.text():
+            return False
+        if not self._remove_last_prompt():
+            return False
+        event.accept()
+        return True
+
+    def _remove_last_prompt(self):
+        entries = self._selected_sorted()
+        if not entries:
+            return False
+        self._remove_prompt_key(self._entry_key(entries[-1]))
+        return True
+
     def _update_content_height(self):
         if not hasattr(self, "chip_scroll"):
             return
         viewport_width = max(1, self.chip_scroll.viewport().width())
         content_height = max(self._row_height, self.chip_layout.heightForWidth(viewport_width))
-        max_height = self._row_height * self._max_visible_rows + 6 * (self._max_visible_rows - 1)
+        max_height = self._row_height * self._max_visible_rows + 4 * (self._max_visible_rows - 1)
         visible_height = min(content_height, max_height)
         self.chip_host.setMinimumHeight(content_height)
         self.chip_scroll.setFixedHeight(visible_height)

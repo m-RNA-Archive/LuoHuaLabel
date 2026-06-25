@@ -192,9 +192,9 @@ QWidget#samDock {
 
 QWidget#promptChipSelector {
     background-color: #ffffff;
-    border: 1px solid #cbd5e1;
+    border: 1px solid #94a3b8;
     border-radius: 12px;
-    min-height: 74px;
+    min-height: 64px;
 }
 
 QWidget#promptChipHost {
@@ -225,11 +225,11 @@ QToolButton#promptAddButton:hover {
 QToolButton#promptModeButton {
     background-color: transparent;
     border: 1px solid #cbd5e1;
-    border-radius: 15px;
+    border-radius: 14px;
     color: #0f172a;
     font-weight: 700;
-    min-height: 30px;
-    max-height: 30px;
+    min-height: 28px;
+    max-height: 28px;
     padding: 0px 22px 0px 10px;
 }
 
@@ -289,19 +289,19 @@ QLineEdit#promptChipInput {
     background: transparent;
     border: 0px;
     color: #0f172a;
-    min-height: 28px;
+    min-height: 24px;
     min-width: 190px;
-    padding: 2px 4px;
+    padding: 0px 4px;
 }
 
 QPushButton#promptReferenceButton {
     background-color: transparent;
     border: 1px solid transparent;
-    border-radius: 15px;
+    border-radius: 14px;
     color: #0f172a;
     font-weight: 700;
-    min-height: 30px;
-    max-height: 30px;
+    min-height: 28px;
+    max-height: 28px;
     padding: 0px 10px;
 }
 
@@ -314,11 +314,11 @@ QPushButton#promptReferenceButton:hover {
 QPushButton#promptSubmitButton {
     background-color: #16a34a;
     border: 1px solid #16a34a;
-    border-radius: 15px;
+    border-radius: 14px;
     color: #ffffff;
     font-weight: 700;
-    min-height: 30px;
-    max-height: 30px;
+    min-height: 28px;
+    max-height: 28px;
     padding: 0px 12px;
 }
 
@@ -328,18 +328,20 @@ QPushButton#promptSubmitButton:hover {
 }
 
 QToolButton#promptChip {
-    border: 2px solid #16a34a;
-    border-radius: 13px;
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
     color: #0f172a;
     font-size: 12px;
     font-weight: 600;
-    min-height: 26px;
-    max-height: 26px;
-    padding: 0px 9px;
+    min-height: 22px;
+    max-height: 22px;
+    padding: 0px 5px;
 }
 
 QToolButton#promptChip:hover {
-    border-color: #15803d;
+    background-color: #f1f5f9;
+    border-color: #cbd5e1;
 }
 
 QFrame#promptPickerPopup {
