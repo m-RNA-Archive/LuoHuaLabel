@@ -640,13 +640,14 @@ class PromptChipSelector(QWidget):
         self._options_host = None
         self._max_visible_rows = 3
         self._row_height = 30
+        self._action_height = 30
 
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
         self.setMinimumWidth(260)
-        self.setMinimumHeight(40)
-        self.outer_layout = QHBoxLayout(self)
-        self.outer_layout.setContentsMargins(8, 4, 6, 4)
-        self.outer_layout.setSpacing(5)
+        self.setMinimumHeight(74)
+        self.outer_layout = QVBoxLayout(self)
+        self.outer_layout.setContentsMargins(12, 8, 8, 8)
+        self.outer_layout.setSpacing(6)
 
         self.add_button = QToolButton()
         self.add_button.setObjectName("promptAddButton")
@@ -680,9 +681,20 @@ class PromptChipSelector(QWidget):
         self.input.setPlaceholderText("输入或选择提示词，如 dog")
         self.input.textChanged.connect(self._rebuild_popup_options)
         self.input.returnPressed.connect(self._commit_typed_prompt)
-        self.chip_layout.addWidget(self.add_button)
         self.chip_layout.addWidget(self.input)
         self.submit_button = None
+        self.reference_button = None
+
+        self.action_bar = QWidget()
+        self.action_bar.setObjectName("promptActionBar")
+        self.action_bar.setFixedHeight(self._action_height)
+        self.action_layout = QHBoxLayout(self.action_bar)
+        self.action_layout.setContentsMargins(0, 0, 0, 0)
+        self.action_layout.setSpacing(6)
+        self.action_layout.addWidget(self.add_button)
+        self.action_layout.addStretch(1)
+        self.outer_layout.addWidget(self.action_bar)
+
         self.installEventFilter(self)
         self.input.installEventFilter(self)
         self.chip_host.installEventFilter(self)
@@ -711,7 +723,20 @@ class PromptChipSelector(QWidget):
         button.setObjectName("promptSubmitButton")
         button.setMinimumWidth(44)
         button.setMaximumWidth(88)
-        self.outer_layout.addWidget(button)
+        button.setMinimumHeight(30)
+        button.setMaximumHeight(30)
+        self.action_layout.addWidget(button)
+        self._update_content_height()
+
+    def attach_reference_button(self, button):
+        self.reference_button = button
+        button.setParent(self)
+        button.setObjectName("promptReferenceButton")
+        button.setMinimumHeight(30)
+        button.setMaximumHeight(30)
+        button.setMinimumWidth(88)
+        button.setMaximumWidth(118)
+        self.action_layout.addWidget(button)
         self._update_content_height()
 
     def currentText(self):
@@ -821,14 +846,12 @@ class PromptChipSelector(QWidget):
         )
 
     def _render_chips(self):
-        preserved = {self.add_button, self.input}
         while self.chip_layout.count():
             item = self.chip_layout.takeAt(0)
             widget = item.widget()
-            if widget is not None and widget not in preserved:
+            if widget is not None and widget is not self.input:
                 widget.deleteLater()
 
-        self.chip_layout.addWidget(self.add_button)
         for entry in self._selected_sorted():
             chip = QToolButton()
             chip.setObjectName("promptChip")
@@ -867,7 +890,8 @@ class PromptChipSelector(QWidget):
         visible_height = min(content_height, max_height)
         self.chip_host.setMinimumHeight(content_height)
         self.chip_scroll.setFixedHeight(visible_height)
-        total_height = visible_height + self.outer_layout.contentsMargins().top() + self.outer_layout.contentsMargins().bottom()
+        margins = self.outer_layout.contentsMargins()
+        total_height = visible_height + self._action_height + self.outer_layout.spacing() + margins.top() + margins.bottom()
         self.setMinimumHeight(total_height)
         self.setMaximumHeight(total_height)
         self.updateGeometry()
@@ -1113,6 +1137,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.samRowLayout.insertWidget(index, self.samPromptInput, 1)
         else:
             self.samRowLayout.addWidget(self.samPromptInput, 1)
+        self.samRowLayout.removeWidget(self.samRefBtn)
+        self.samPromptInput.attach_reference_button(self.samRefBtn)
         self.samRowLayout.removeWidget(self.samPromptBtn)
         self.samPromptInput.attach_submit_button(self.samPromptBtn)
 

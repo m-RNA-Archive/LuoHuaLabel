@@ -186,25 +186,29 @@ QGraphicsView#canvasView {
 }
 
 QWidget#samDock {
-    border: 1px solid #d8dee8;
-    border-radius: 6px;
+    background: transparent;
+    border: 0px;
 }
 
 QWidget#promptChipSelector {
     background-color: #ffffff;
     border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    min-height: 32px;
+    border-radius: 12px;
+    min-height: 74px;
 }
 
 QWidget#promptChipHost {
     background: transparent;
 }
 
+QWidget#promptActionBar {
+    background: transparent;
+}
+
 QToolButton#promptAddButton {
     background-color: transparent;
     border: 0px;
-    border-radius: 6px;
+    border-radius: 14px;
     color: #64748b;
     font-size: 20px;
     min-height: 28px;
@@ -247,19 +251,37 @@ QLineEdit#promptChipInput {
     background: transparent;
     border: 0px;
     color: #0f172a;
+    min-height: 28px;
     min-width: 190px;
     padding: 2px 4px;
+}
+
+QPushButton#promptReferenceButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 15px;
+    color: #0f172a;
+    font-weight: 700;
+    min-height: 30px;
+    max-height: 30px;
+    padding: 0px 10px;
+}
+
+QPushButton#promptReferenceButton:hover {
+    background-color: #f1f5f9;
+    border-color: #cbd5e1;
+    color: #0f172a;
 }
 
 QPushButton#promptSubmitButton {
     background-color: #16a34a;
     border: 1px solid #16a34a;
-    border-radius: 14px;
+    border-radius: 15px;
     color: #ffffff;
     font-weight: 700;
-    min-height: 28px;
-    max-height: 28px;
-    padding: 0px 10px;
+    min-height: 30px;
+    max-height: 30px;
+    padding: 0px 12px;
 }
 
 QPushButton#promptSubmitButton:hover {
@@ -269,12 +291,12 @@ QPushButton#promptSubmitButton:hover {
 
 QToolButton#promptChip {
     border: 2px solid #16a34a;
-    border-radius: 12px;
+    border-radius: 13px;
     color: #0f172a;
     font-size: 12px;
     font-weight: 600;
-    min-height: 24px;
-    max-height: 24px;
+    min-height: 26px;
+    max-height: 26px;
     padding: 0px 9px;
 }
 
