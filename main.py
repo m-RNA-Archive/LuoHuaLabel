@@ -8,9 +8,10 @@ from PySide6.QtWidgets import (
     QListWidgetItem, QColorDialog, QMenu, QDialog, QVBoxLayout, QListWidget,
     QComboBox, QLineEdit, QTextEdit, QPlainTextEdit,
     QPushButton, QHBoxLayout, QTreeWidgetItem, QAbstractSpinBox, QSplashScreen,
-    QProgressBar, QStyledItemDelegate, QStyle, QStyleOptionViewItem
+    QProgressBar, QStyledItemDelegate, QStyle, QStyleOptionViewItem, QWidget,
+    QFrame, QToolButton, QScrollArea, QCheckBox, QSizePolicy
 )
-from PySide6.QtCore import Qt, QPointF, QRectF, QSettings, QSize, QTimer, QEvent
+from PySide6.QtCore import Qt, QPointF, QRectF, QSettings, QSize, QTimer, QEvent, Signal
 from PySide6.QtGui import (
     QPolygonF, QColor, QBrush, QPixmap, QIcon, QPalette, QCursor, QPainter, QPen,
     QShortcut, QKeySequence, QDesktopServices, QFont, QPainterPath, QLinearGradient
@@ -479,10 +480,274 @@ class LabelVisibilityItemDelegate(QStyledItemDelegate):
         return size
 
 
+class PromptChipSelector(QWidget):
+    selection_changed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("promptChipSelector")
+        self._options = []
+        self._selected = []
+        self._current_label = ""
+        self._default_placeholder = "输入或选择提示词，如 dog"
+        self._popup = None
+        self._search_edit = None
+        self._options_host = None
+
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.outer_layout = QHBoxLayout(self)
+        self.outer_layout.setContentsMargins(8, 4, 6, 4)
+        self.outer_layout.setSpacing(5)
+
+        self.chip_host = QWidget()
+        self.chip_host.setObjectName("promptChipHost")
+        self.chip_layout = QHBoxLayout(self.chip_host)
+        self.chip_layout.setContentsMargins(0, 0, 0, 0)
+        self.chip_layout.setSpacing(5)
+        self.outer_layout.addWidget(self.chip_host, 1)
+
+        self.input = QLineEdit()
+        self.input.setObjectName("promptChipInput")
+        self.input.setFrame(False)
+        self.input.setPlaceholderText("输入或选择提示词，如 dog")
+        self.input.returnPressed.connect(self._commit_typed_prompt)
+        self.chip_layout.addWidget(self.input, 1)
+
+        self.menu_button = QToolButton()
+        self.menu_button.setObjectName("promptChipMenuButton")
+        self.menu_button.setText("选择")
+        self.menu_button.clicked.connect(self.show_prompt_popup)
+        self.outer_layout.addWidget(self.menu_button)
+
+    def lineEdit(self):
+        return self.input
+
+    def currentText(self):
+        return self.input.text().strip()
+
+    def setEditText(self, text):
+        self.input.setText(text or "")
+
+    def setPlaceholderText(self, text):
+        self._default_placeholder = text or ""
+        if not self._selected:
+            self.input.setPlaceholderText(self._default_placeholder)
+
+    def clear(self):
+        self._selected = []
+        self.input.clear()
+        self._render_chips()
+        self.selection_changed.emit()
+
+    def set_current_label(self, label):
+        self._current_label = (label or "").strip()
+
+    def set_prompt_options(self, options):
+        selected_keys = [self._entry_key(entry) for entry in self._selected]
+        self._options = []
+        seen = set()
+        for option in options:
+            label = (option.get("label") or "").strip()
+            prompt = (option.get("prompt") or "").strip()
+            if not label or not prompt:
+                continue
+            key = self._make_key(label, prompt)
+            if key in seen:
+                continue
+            seen.add(key)
+            self._options.append({
+                "label": label,
+                "prompt": prompt,
+                "color": option.get("color") or "#22c55e",
+            })
+        option_by_key = {self._entry_key(option): option for option in self._options}
+        self._selected = [option_by_key[key] for key in selected_keys if key in option_by_key]
+        self._render_chips()
+        if self._popup and self._popup.isVisible():
+            self._rebuild_popup_options()
+
+    def selected_prompts(self):
+        return [dict(entry) for entry in self._selected]
+
+    def set_single_prompt(self, label, prompt):
+        label = (label or "").strip()
+        prompt = (prompt or "").strip()
+        if not label or not prompt:
+            return
+        self._selected = [self._entry_for(label, prompt)]
+        self.input.clear()
+        self._render_chips()
+        self.selection_changed.emit()
+
+    def add_prompt(self, label, prompt):
+        label = (label or self._current_label or "").strip()
+        prompt = (prompt or "").strip()
+        if not label or not prompt:
+            return False
+        key = self._make_key(label, prompt)
+        if key in {self._entry_key(entry) for entry in self._selected}:
+            self.input.clear()
+            return False
+        self._selected.append(self._entry_for(label, prompt))
+        self.input.clear()
+        self._render_chips()
+        self.selection_changed.emit()
+        return True
+
+    def _commit_typed_prompt(self):
+        text = self.input.text().strip()
+        if text and self._current_label:
+            self.add_prompt(self._current_label, text)
+
+    def _entry_for(self, label, prompt):
+        for option in self._options:
+            if option["label"] == label and option["prompt"] == prompt:
+                return dict(option)
+        return {
+            "label": label,
+            "prompt": prompt,
+            "color": "#22c55e",
+        }
+
+    def _make_key(self, label, prompt):
+        return f"{label}\0{prompt}"
+
+    def _entry_key(self, entry):
+        return self._make_key(entry.get("label", ""), entry.get("prompt", ""))
+
+    def _render_chips(self):
+        while self.chip_layout.count() > 1:
+            item = self.chip_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        for entry in self._selected:
+            chip = QToolButton()
+            chip.setObjectName("promptChip")
+            prompt = entry["prompt"]
+            label = entry["label"]
+            chip.setText(f"{prompt}  ×" if prompt == label else f"{prompt} · {label}  ×")
+            chip.setToolTip(f"{label} -> {prompt}")
+            chip.setAutoRaise(False)
+            chip.setMaximumWidth(180)
+            color = QColor(entry.get("color") or "#22c55e")
+            bg = QColor(color)
+            bg.setAlpha(42)
+            border = QColor(color)
+            border.setAlpha(180)
+            chip.setStyleSheet(
+                "QToolButton#promptChip {"
+                f"background-color: {bg.name(QColor.HexArgb)};"
+                f"border-color: {border.name(QColor.HexArgb)};"
+                "}"
+            )
+            chip.clicked.connect(lambda _checked=False, key=self._entry_key(entry): self._remove_prompt_key(key))
+            self.chip_layout.insertWidget(self.chip_layout.count() - 1, chip)
+
+        self.input.setPlaceholderText("输入提示词并回车" if self._selected else self._default_placeholder)
+
+    def _remove_prompt_key(self, key):
+        self._selected = [entry for entry in self._selected if self._entry_key(entry) != key]
+        self._render_chips()
+        if self._popup and self._popup.isVisible():
+            self._rebuild_popup_options()
+        self.selection_changed.emit()
+
+    def show_prompt_popup(self):
+        if self._popup is None:
+            self._popup = QFrame(self, Qt.Popup)
+            self._popup.setObjectName("promptPickerPopup")
+            popup_layout = QVBoxLayout(self._popup)
+            popup_layout.setContentsMargins(10, 10, 10, 10)
+            popup_layout.setSpacing(8)
+
+            self._search_edit = QLineEdit()
+            self._search_edit.setObjectName("promptPickerSearch")
+            self._search_edit.setPlaceholderText("搜索标签或提示词")
+            self._search_edit.textChanged.connect(self._rebuild_popup_options)
+            popup_layout.addWidget(self._search_edit)
+
+            scroll = QScrollArea()
+            scroll.setObjectName("promptPickerScroll")
+            scroll.setWidgetResizable(True)
+            scroll.setMinimumHeight(220)
+            scroll.setMaximumHeight(360)
+            self._options_host = QWidget()
+            self._options_host.setObjectName("promptPickerOptions")
+            scroll.setWidget(self._options_host)
+            popup_layout.addWidget(scroll)
+
+        self._rebuild_popup_options()
+        pos = self.mapToGlobal(self.rect().bottomLeft())
+        self._popup.setMinimumWidth(max(420, self.width()))
+        self._popup.move(pos)
+        self._popup.show()
+        self._search_edit.setFocus(Qt.PopupFocusReason)
+
+    def _rebuild_popup_options(self):
+        if self._options_host is None:
+            return
+        old_layout = self._options_host.layout()
+        if old_layout is not None:
+            while old_layout.count():
+                item = old_layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
+            QWidget().setLayout(old_layout)
+
+        layout = QVBoxLayout(self._options_host)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        query = (self._search_edit.text() if self._search_edit else "").strip().lower()
+        selected_keys = {self._entry_key(entry) for entry in self._selected}
+        grouped = {}
+        for option in self._options:
+            haystack = f"{option['label']} {option['prompt']}".lower()
+            if query and query not in haystack:
+                continue
+            grouped.setdefault(option["label"], []).append(option)
+
+        if not grouped:
+            empty = QLabel("暂无可选提示词")
+            empty.setObjectName("promptPickerEmpty")
+            layout.addWidget(empty)
+            layout.addStretch(1)
+            return
+
+        for label in sorted(grouped, key=lambda text: text.lower()):
+            title = QLabel(label)
+            title.setObjectName("promptPickerGroupTitle")
+            layout.addWidget(title)
+            for option in grouped[label]:
+                check = QCheckBox(option["prompt"])
+                check.setObjectName("promptPickerOption")
+                check.setToolTip(f"{option['label']} -> {option['prompt']}")
+                check.setChecked(self._entry_key(option) in selected_keys)
+                check.toggled.connect(
+                    lambda checked, entry=dict(option): self._toggle_prompt_option(entry, checked)
+                )
+                layout.addWidget(check)
+        layout.addStretch(1)
+
+    def _toggle_prompt_option(self, entry, checked):
+        key = self._entry_key(entry)
+        selected_keys = {self._entry_key(item) for item in self._selected}
+        if checked and key not in selected_keys:
+            self._selected.append(dict(entry))
+        elif not checked and key in selected_keys:
+            self._selected = [item for item in self._selected if self._entry_key(item) != key]
+        self._render_chips()
+        self.selection_changed.emit()
+
+
 class MainWindow(QMainWindow, Ui_MainWindow):
     def __init__(self):
         super().__init__()
         self.setupUi(self)
+        self._install_prompt_chip_selector()
 
         self.scene = Canvas(self)
         self.view.setScene(self.scene)
@@ -587,6 +852,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.load_sam_model_or_prompt()
         self._schedule_startup_help_once()
         self.restore_last_session()
+
+    def _install_prompt_chip_selector(self):
+        old_prompt_input = self.samPromptInput
+        index = self.samRowLayout.indexOf(old_prompt_input)
+        self.samRowLayout.removeWidget(old_prompt_input)
+        old_prompt_input.deleteLater()
+        self.samPromptInput = PromptChipSelector(self.samRow)
+        if index >= 0:
+            self.samRowLayout.insertWidget(index, self.samPromptInput, 1)
+        else:
+            self.samRowLayout.addWidget(self.samPromptInput, 1)
 
     def _connect_signals(self):
         self.actionOpen.triggered.connect(self.open_dir)
@@ -1901,20 +2177,22 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         return aliases
 
     def refresh_prompt_combo(self):
-        current_text = self.samPromptInput.currentText().strip()
-        aliases = self.prompt_aliases_for_label(self.active_label)
-        self.samPromptInput.blockSignals(True)
-        try:
-            self.samPromptInput.clear()
-            self.samPromptInput.addItems(aliases)
-            if current_text and current_text in aliases:
-                self.samPromptInput.setEditText(current_text)
-            elif aliases:
-                self.samPromptInput.setEditText(aliases[0])
-            else:
-                self.samPromptInput.setEditText("")
-        finally:
-            self.samPromptInput.blockSignals(False)
+        if not hasattr(self, "samPromptInput"):
+            return
+        self.samPromptInput.set_current_label(self.active_label)
+        self.samPromptInput.set_prompt_options(self._prompt_selector_options())
+
+    def _prompt_selector_options(self):
+        options = []
+        for label in self.class_list:
+            color = self.class_colors.get(label, color_for_label(label).name())
+            for prompt in self.prompt_aliases_for_label(label):
+                options.append({
+                    "label": label,
+                    "prompt": prompt,
+                    "color": color,
+                })
+        return options
 
     def add_prompt_alias(self, label, prompt):
         label = (label or "").strip()
@@ -2695,7 +2973,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.refresh_file_item_status(image_path)
         return len(new_shapes)
 
-    def _start_batch_prompt_annotation(self, image_paths, prompt, label):
+    def _start_batch_prompt_annotation(self, image_paths, prompt_entries):
         if self._is_batch_prompt_running():
             self._notify("批量智能标注正在进行，请等待当前任务完成", "warning")
             return
@@ -2711,18 +2989,31 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 continue
             seen.add(normalized)
             deduped_paths.append(normalized)
-        if len(deduped_paths) <= 1:
+        valid_entries = []
+        seen_entries = set()
+        for entry in prompt_entries:
+            label = (entry.get("label") or "").strip()
+            prompt = (entry.get("prompt") or "").strip()
+            if not label or not prompt:
+                continue
+            key = (label, prompt)
+            if key in seen_entries:
+                continue
+            seen_entries.add(key)
+            valid_entries.append({"label": label, "prompt": prompt})
+        if not deduped_paths or not valid_entries:
             return
 
         self.batch_prompt_queue = [
             {
                 "image_path": image_path,
-                "prompt": prompt,
-                "label": label,
+                "prompt": entry["prompt"],
+                "label": entry["label"],
                 "mode": self.scene.mode,
                 "format": self.current_format,
             }
             for image_path in deduped_paths
+            for entry in valid_entries
         ]
         self.active_batch_prompt_task = None
         self.batch_prompt_total = len(self.batch_prompt_queue)
@@ -2731,7 +3022,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.batch_prompt_failed = 0
         self._cancel_pending_sam_analysis()
         self._update_batch_prompt_progress(0)
-        self._set_status("批量智能标注中...", "orange")
+        if len(deduped_paths) > 1:
+            self._set_status(f"批量智能标注中：{len(deduped_paths)} 张图片 × {len(valid_entries)} 个提示词", "orange")
+        else:
+            self._set_status(f"正在按 {len(valid_entries)} 个提示词标注当前图片", "orange")
         self.samPromptBtn.setEnabled(False)
         self.samSwitch.setChecked(True)
         self._process_next_batch_prompt_task()
@@ -2762,7 +3056,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.batch_prompt_added = 0
             self.batch_prompt_failed = 0
             self.apply_sam_control_availability()
-            self._set_status(f"批量智能标注完成：{total} 张图片，新增 {added} 个标注，失败 {failed} 张", "green" if failed == 0 else "orange")
+            self._set_status(f"智能标注完成：{total} 个任务，新增 {added} 个标注，失败 {failed} 个", "green" if failed == 0 else "orange")
             QTimer.singleShot(2400, self._update_batch_prompt_progress)
             if self.current_image_path:
                 self._schedule_current_image_sam_analysis(delay_ms=0)
@@ -2812,42 +3106,38 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self._notify("批量智能标注正在进行，请等待当前任务完成", "warning")
             return
 
-        prompt = self.samPromptInput.currentText().strip()
+        typed_prompt = self.samPromptInput.currentText().strip()
+        if typed_prompt:
+            label = self.ensure_prompt_label()
+            if not label:
+                self._notify("请先选择或创建一个标签", "warning")
+                return
+            self.add_prompt_alias(label, typed_prompt)
+            self.samPromptInput.add_prompt(label, typed_prompt)
 
-        label = self.ensure_prompt_label()
-        if not label:
-            self._notify("请先选择或创建一个标签", "warning")
+        prompt_entries = self.samPromptInput.selected_prompts()
+        if not prompt_entries:
+            self._notify("请先输入或选择至少一个提示词", "warning")
             return
 
-        if prompt:
-            self.samPromptInput.setEditText(prompt)
+        for entry in prompt_entries:
+            label = entry.get("label", "")
+            prompt = entry.get("prompt", "")
+            if label not in self.class_list:
+                self.add_class_to_list(label)
+                self.save_classes()
             self.add_prompt_alias(label, prompt)
-            checked_paths = self.checked_file_paths()
-            if len(checked_paths) > 1:
-                self._start_batch_prompt_annotation(checked_paths, prompt, label)
-                return
+
+        checked_paths = self.checked_file_paths()
+        image_paths = checked_paths if len(checked_paths) > 1 else []
+        if not image_paths:
             image_path = os.path.abspath(self.current_image_path) if self.current_image_path else ""
             if not image_path:
                 self._notify("请先打开图片", "warning")
                 return
-            self.samSwitch.setChecked(True)
-            if not self.sam_client.is_image_ready(image_path):
-                self._set_status("正在同步当前图片的 SAM 特征...", "orange")
-                QApplication.processEvents()
-                self.sam_client.set_image(image_path)
-            if not self.sam_client.is_image_ready(image_path):
-                self._notify("当前图片 SAM 特征尚未就绪，请稍后再试", "warning")
-                return
-            self.pending_prompt_targets[(prompt, image_path)] = {
-                "label": label,
-                "mode": self.scene.mode,
-                "format": self.current_format,
-                "batch": False,
-            }
-            self._set_status(f"正在用提示词“{prompt}”检索，结果将标注为“{label}”...", "orange")
-            if not self.sam_client.request_text_inference(prompt, image_path):
-                self.pending_prompt_targets.pop((prompt, image_path), None)
-                self._notify("当前图片 SAM 特征尚未就绪，请稍后再试", "warning")
+            image_paths = [image_path]
+
+        self._start_batch_prompt_annotation(image_paths, prompt_entries)
 
     def _shape_scene_rect(self, shape):
         if isinstance(shape, RotatedRectShape):
@@ -3185,10 +3475,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.samSwitch.setChecked(False)
 
             self.apply_sam_control_availability()
-            self.samPromptInput.lineEdit().setPlaceholderText("点标注模式下不可使用 SAM")
+            self.samPromptInput.setPlaceholderText("点标注模式下不可使用 SAM")
         else:
             self.apply_sam_control_availability()
-            self.samPromptInput.lineEdit().setPlaceholderText("输入或选择提示词提取（如: dog）")
+            self.samPromptInput.setPlaceholderText("输入或选择提示词提取（如: dog）")
 
     def _update_help_text(self, mode):
         is_sam = self.samSwitch.isChecked()
@@ -3356,7 +3646,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.update_active_label_indicator()
                 self.refresh_label_combo()
                 self.refresh_prompt_combo()
-                self.samPromptInput.setEditText(prompt)
+                self.samPromptInput.set_single_prompt(cls_name, prompt)
                 if self.breathing_highlight_enabled:
                     self._reset_breathing_highlight()
         else:
@@ -3454,7 +3744,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.settings.setValue("active_label", self.active_label)
             self.update_active_label_indicator()
             self.refresh_prompt_combo()
-            self.samPromptInput.setEditText(prompt)
+            self.samPromptInput.set_single_prompt(label, prompt)
             self.trigger_sam_prompt()
 
     def change_class_color(self, item):
@@ -3471,6 +3761,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 if hasattr(shape, "update_label_text"):
                     shape.update_label_text(cls_name)
         self.save_class_colors()
+        self.refresh_prompt_combo()
         self.update_annotation_panel()
 
     def on_annotation_group_changed(self, index):

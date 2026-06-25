@@ -190,6 +190,87 @@ QWidget#samDock {
     border-radius: 6px;
 }
 
+QWidget#promptChipSelector {
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    min-height: 28px;
+}
+
+QWidget#promptChipHost {
+    background: transparent;
+}
+
+QLineEdit#promptChipInput {
+    background: transparent;
+    border: 0px;
+    color: #0f172a;
+    min-width: 160px;
+    padding: 2px 4px;
+}
+
+QToolButton#promptChip {
+    border: 1px solid #16a34a;
+    border-radius: 12px;
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 600;
+    min-height: 24px;
+    padding: 0px 9px;
+}
+
+QToolButton#promptChip:hover {
+    border-color: #15803d;
+}
+
+QToolButton#promptChipMenuButton {
+    background-color: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    color: #0f172a;
+    font-weight: 600;
+    min-height: 24px;
+    padding: 0px 10px;
+}
+
+QFrame#promptPickerPopup {
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+}
+
+QScrollArea#promptPickerScroll {
+    background: transparent;
+    border: 0px;
+}
+
+QWidget#promptPickerOptions {
+    background: transparent;
+}
+
+QLabel#promptPickerGroupTitle {
+    color: #1d4ed8;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 6px 2px 2px 2px;
+}
+
+QCheckBox#promptPickerOption {
+    color: #0f172a;
+    min-height: 24px;
+    padding: 2px 4px;
+}
+
+QCheckBox#promptPickerOption:hover {
+    background-color: #f1f5f9;
+    border-radius: 4px;
+}
+
+QLabel#promptPickerEmpty {
+    color: #64748b;
+    padding: 18px 6px;
+}
+
 QListWidget,
 QListView,
 QTreeView,
