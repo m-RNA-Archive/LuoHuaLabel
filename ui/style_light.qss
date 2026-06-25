@@ -222,6 +222,44 @@ QToolButton#promptAddButton:hover {
     color: #0f172a;
 }
 
+QToolButton#promptModeButton {
+    background-color: transparent;
+    border: 1px solid #cbd5e1;
+    border-radius: 15px;
+    color: #0f172a;
+    font-weight: 700;
+    min-height: 30px;
+    max-height: 30px;
+    padding: 0px 22px 0px 10px;
+}
+
+QToolButton#promptModeButton:hover {
+    background-color: #f1f5f9;
+    border-color: #94a3b8;
+    color: #0f172a;
+}
+
+QToolButton#promptModeButton:checked {
+    background-color: #dcfce7;
+    border-color: #16a34a;
+    color: #166534;
+}
+
+QToolButton#promptModeButton:disabled {
+    background-color: transparent;
+    border-color: #cbd5e1;
+    color: #94a3b8;
+}
+
+QToolButton#promptModeButton::menu-indicator {
+    image: url(ui/dropdown_arrow_light.png);
+    subcontrol-origin: padding;
+    subcontrol-position: right center;
+    width: 12px;
+    height: 12px;
+    right: 7px;
+}
+
 QScrollArea#promptChipScroll {
     background: transparent;
     border: 0px;

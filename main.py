@@ -682,6 +682,7 @@ class PromptChipSelector(QWidget):
         self.input.textChanged.connect(self._rebuild_popup_options)
         self.input.returnPressed.connect(self._commit_typed_prompt)
         self.chip_layout.addWidget(self.input)
+        self.mode_button = None
         self.submit_button = None
         self.reference_button = None
 
@@ -726,6 +727,19 @@ class PromptChipSelector(QWidget):
         button.setMinimumHeight(30)
         button.setMaximumHeight(30)
         self.action_layout.addWidget(button)
+        self._update_content_height()
+
+    def attach_mode_button(self, button):
+        self.mode_button = button
+        button.setParent(self)
+        button.setObjectName("promptModeButton")
+        button.setAutoRaise(False)
+        button.setMinimumHeight(30)
+        button.setMaximumHeight(30)
+        button.setMinimumWidth(74)
+        button.setMaximumWidth(132)
+        button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.action_layout.insertWidget(1, button)
         self._update_content_height()
 
     def attach_reference_button(self, button):
@@ -1137,10 +1151,24 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.samRowLayout.insertWidget(index, self.samPromptInput, 1)
         else:
             self.samRowLayout.addWidget(self.samPromptInput, 1)
+        self.samRowLayout.removeWidget(self.samSwitch)
+        self.samPromptInput.attach_mode_button(self.samSwitch)
+        self._setup_sam_mode_menu()
         self.samRowLayout.removeWidget(self.samRefBtn)
         self.samPromptInput.attach_reference_button(self.samRefBtn)
         self.samRowLayout.removeWidget(self.samPromptBtn)
         self.samPromptInput.attach_submit_button(self.samPromptBtn)
+
+    def _setup_sam_mode_menu(self):
+        menu = QMenu(self.samSwitch)
+        self.samModeAction = menu.addAction("SAM 智能辅助")
+        self.samModeAction.setCheckable(True)
+        self.samModeAction.triggered.connect(lambda checked=False: self.samSwitch.setChecked(True))
+        self.samOffAction = menu.addAction("关闭")
+        self.samOffAction.setCheckable(True)
+        self.samOffAction.triggered.connect(lambda checked=False: self.samSwitch.setChecked(False))
+        self.samSwitch.setMenu(menu)
+        self.samSwitch.setPopupMode(QToolButton.InstantPopup)
 
     def _connect_signals(self):
         self.actionOpen.triggered.connect(self.open_dir)
@@ -1267,14 +1295,19 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def _update_sam_switch_text(self):
         if not self.samSwitch.isEnabled():
-            self.samSwitch.setText("SAM 不可用")
+            self.samSwitch.setText("不可用")
             self.samSwitch.setToolTip("SAM3 模型不可用或当前模式不支持 SAM")
         elif self.samSwitch.isChecked():
-            self.samSwitch.setText("关闭 SAM")
-            self.samSwitch.setToolTip("关闭 SAM 智能辅助")
+            self.samSwitch.setText("SAM")
+            self.samSwitch.setToolTip("当前模式: SAM 智能辅助")
         else:
-            self.samSwitch.setText("打开 SAM")
-            self.samSwitch.setToolTip("打开 SAM 智能辅助")
+            self.samSwitch.setText("关闭")
+            self.samSwitch.setToolTip("当前未启用 SAM，点击选择辅助模型")
+        if hasattr(self, "samModeAction"):
+            sam_available = self.samSwitch.isEnabled()
+            self.samModeAction.setEnabled(sam_available)
+            self.samModeAction.setChecked(sam_available and self.samSwitch.isChecked())
+            self.samOffAction.setChecked(not self.samSwitch.isChecked())
 
     def _tick_breathing_highlight(self):
         self._breathing_cycle_elapsed = (
