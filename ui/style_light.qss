@@ -201,6 +201,23 @@ QWidget#promptChipHost {
     background: transparent;
 }
 
+QToolButton#promptAddButton {
+    background-color: transparent;
+    border: 0px;
+    border-radius: 6px;
+    color: #64748b;
+    font-size: 20px;
+    min-height: 28px;
+    min-width: 28px;
+    max-width: 28px;
+    padding: 0px;
+}
+
+QToolButton#promptAddButton:hover {
+    background-color: #f1f5f9;
+    color: #0f172a;
+}
+
 QScrollArea#promptChipScroll {
     background: transparent;
     border: 0px;
@@ -226,8 +243,24 @@ QLineEdit#promptChipInput {
     background: transparent;
     border: 0px;
     color: #0f172a;
-    min-width: 160px;
+    min-width: 190px;
     padding: 2px 4px;
+}
+
+QPushButton#promptSubmitButton {
+    background-color: #16a34a;
+    border: 1px solid #16a34a;
+    border-radius: 14px;
+    color: #ffffff;
+    font-weight: 700;
+    min-height: 28px;
+    max-height: 28px;
+    padding: 0px 10px;
+}
+
+QPushButton#promptSubmitButton:hover {
+    background-color: #22c55e;
+    color: #052e16;
 }
 
 QToolButton#promptChip {
@@ -259,13 +292,6 @@ QWidget#promptPickerOptions {
     background: transparent;
 }
 
-QLabel#promptPickerGroupTitle {
-    color: #1d4ed8;
-    font-size: 12px;
-    font-weight: 700;
-    padding: 8px 4px 3px 4px;
-}
-
 QFrame#promptPickerOptionRow {
     background-color: transparent;
     border: 1px solid transparent;
@@ -286,11 +312,12 @@ QLabel#promptPickerPromptText {
     color: #0f172a;
     font-size: 13px;
     font-weight: 600;
+    padding-right: 10px;
 }
 
 QLabel#promptPickerClassText {
     color: #64748b;
-    font-size: 11px;
+    font-size: 12px;
 }
 
 QLabel#promptPickerCheck {

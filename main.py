@@ -490,11 +490,11 @@ class PromptOptionRow(QFrame):
         self.setObjectName("promptPickerOptionRow")
         self.setProperty("selected", self.selected)
         self.setCursor(Qt.PointingHandCursor)
-        self.setMinimumHeight(46)
+        self.setMinimumHeight(34)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 6, 10, 6)
-        layout.setSpacing(10)
+        layout.setContentsMargins(10, 4, 10, 4)
+        layout.setSpacing(8)
 
         color = QColor(self.entry.get("color") or "#22c55e")
         self.color_dot = QLabel()
@@ -509,18 +509,15 @@ class PromptOptionRow(QFrame):
         )
         layout.addWidget(self.color_dot)
 
-        text_layout = QVBoxLayout()
-        text_layout.setContentsMargins(0, 0, 0, 0)
-        text_layout.setSpacing(1)
         self.prompt_label = QLabel(self.entry.get("prompt", ""))
         self.prompt_label.setObjectName("promptPickerPromptText")
         self.prompt_label.setWordWrap(False)
+        layout.addWidget(self.prompt_label, 1)
+
         self.class_label = QLabel(self.entry.get("label", ""))
         self.class_label.setObjectName("promptPickerClassText")
         self.class_label.setWordWrap(False)
-        text_layout.addWidget(self.prompt_label)
-        text_layout.addWidget(self.class_label)
-        layout.addLayout(text_layout, 1)
+        layout.addWidget(self.class_label)
 
         self.check_label = QLabel("✓" if self.selected else "")
         self.check_label.setObjectName("promptPickerCheck")
@@ -564,6 +561,14 @@ class PromptChipSelector(QWidget):
         self.outer_layout.setContentsMargins(8, 4, 6, 4)
         self.outer_layout.setSpacing(5)
 
+        self.add_button = QToolButton()
+        self.add_button.setObjectName("promptAddButton")
+        self.add_button.setText("+")
+        self.add_button.setAutoRaise(True)
+        self.add_button.setToolTip("添加提示词")
+        self.add_button.clicked.connect(self.show_prompt_popup)
+        self.outer_layout.addWidget(self.add_button)
+
         self.chip_scroll = QScrollArea()
         self.chip_scroll.setObjectName("promptChipScroll")
         self.chip_scroll.setFrameShape(QFrame.NoFrame)
@@ -585,11 +590,13 @@ class PromptChipSelector(QWidget):
         self.input = QLineEdit()
         self.input.setObjectName("promptChipInput")
         self.input.setFrame(False)
-        self.input.setMinimumWidth(160)
+        self.input.setMinimumWidth(190)
+        self.input.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.input.setPlaceholderText("输入或选择提示词，如 dog")
         self.input.textChanged.connect(self._rebuild_popup_options)
         self.input.returnPressed.connect(self._commit_typed_prompt)
-        self.chip_layout.addWidget(self.input, 1)
+        self.outer_layout.addWidget(self.input)
+        self.submit_button = None
         self.installEventFilter(self)
         self.input.installEventFilter(self)
         self.chip_host.installEventFilter(self)
@@ -610,6 +617,14 @@ class PromptChipSelector(QWidget):
 
     def minimumSizeHint(self):
         return QSize(260, 38)
+
+    def attach_submit_button(self, button):
+        self.submit_button = button
+        button.setParent(self)
+        button.setObjectName("promptSubmitButton")
+        button.setMinimumWidth(44)
+        button.setMaximumWidth(88)
+        self.outer_layout.addWidget(button)
 
     def currentText(self):
         return self.input.text().strip()
@@ -722,7 +737,7 @@ class PromptChipSelector(QWidget):
             chip.setText(f"{prompt}  ×" if prompt == label else f"{prompt} · {label}  ×")
             chip.setToolTip(f"{label} -> {prompt}")
             chip.setAutoRaise(False)
-            chip.setMaximumWidth(180)
+            chip.setMaximumWidth(320)
             color = QColor(entry.get("color") or "#22c55e")
             bg = QColor(color)
             bg.setAlpha(42)
@@ -845,10 +860,8 @@ class PromptChipSelector(QWidget):
             layout.addStretch(1)
             return
 
-        for label in sorted(grouped, key=lambda text: (self._label_order.get(text, 10_000), text.lower())):
-            title = QLabel(label)
-            title.setObjectName("promptPickerGroupTitle")
-            layout.addWidget(title)
+        sorted_labels = sorted(grouped, key=lambda text: (self._label_order.get(text, 10_000), text.lower()))
+        for label in sorted_labels:
             for option in sorted(grouped[label], key=lambda entry: entry["prompt"].lower()):
                 row = PromptOptionRow(option, self._entry_key(option) in selected_keys)
                 row.setToolTip(f"{option['label']} -> {option['prompt']}")
@@ -986,6 +999,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.samRowLayout.insertWidget(index, self.samPromptInput, 1)
         else:
             self.samRowLayout.addWidget(self.samPromptInput, 1)
+        self.samRowLayout.removeWidget(self.samPromptBtn)
+        self.samPromptInput.attach_submit_button(self.samPromptBtn)
 
     def _connect_signals(self):
         self.actionOpen.triggered.connect(self.open_dir)
