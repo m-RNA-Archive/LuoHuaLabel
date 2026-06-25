@@ -497,14 +497,15 @@ class PromptOptionRow(QFrame):
         layout.setSpacing(8)
 
         color = QColor(self.entry.get("color") or "#22c55e")
+        ring = QColor("#64748b") if self._is_light_color(color) else color.darker(145)
         self.color_dot = QLabel()
         self.color_dot.setObjectName("promptPickerColorDot")
-        self.color_dot.setFixedSize(14, 14)
+        self.color_dot.setFixedSize(16, 16)
         self.color_dot.setStyleSheet(
             "QLabel#promptPickerColorDot {"
             f"background-color: {color.name()};"
-            f"border: 2px solid {color.name()};"
-            "border-radius: 7px;"
+            f"border: 2px solid {ring.name()};"
+            "border-radius: 8px;"
             "}"
         )
         layout.addWidget(self.color_dot)
@@ -536,6 +537,9 @@ class PromptOptionRow(QFrame):
             event.accept()
             return
         super().mousePressEvent(event)
+
+    def _is_light_color(self, color):
+        return (color.red() * 0.299 + color.green() * 0.587 + color.blue() * 0.114) > 210
 
 
 class PromptChipSelector(QWidget):
