@@ -491,39 +491,63 @@ class PromptChipSelector(QWidget):
         self._current_label = ""
         self._default_placeholder = "输入或选择提示词，如 dog"
         self._popup = None
-        self._search_edit = None
+        self._popup_scroll = None
         self._options_host = None
 
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.setMinimumWidth(260)
+        self.setMinimumHeight(38)
+        self.setMaximumHeight(38)
         self.outer_layout = QHBoxLayout(self)
         self.outer_layout.setContentsMargins(8, 4, 6, 4)
         self.outer_layout.setSpacing(5)
 
+        self.chip_scroll = QScrollArea()
+        self.chip_scroll.setObjectName("promptChipScroll")
+        self.chip_scroll.setFrameShape(QFrame.NoFrame)
+        self.chip_scroll.setWidgetResizable(False)
+        self.chip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.chip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.chip_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.chip_scroll.setFixedHeight(30)
+
         self.chip_host = QWidget()
         self.chip_host.setObjectName("promptChipHost")
+        self.chip_host.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         self.chip_layout = QHBoxLayout(self.chip_host)
         self.chip_layout.setContentsMargins(0, 0, 0, 0)
         self.chip_layout.setSpacing(5)
-        self.outer_layout.addWidget(self.chip_host, 1)
+        self.chip_scroll.setWidget(self.chip_host)
+        self.outer_layout.addWidget(self.chip_scroll, 1)
 
         self.input = QLineEdit()
         self.input.setObjectName("promptChipInput")
         self.input.setFrame(False)
+        self.input.setMinimumWidth(160)
         self.input.setPlaceholderText("输入或选择提示词，如 dog")
+        self.input.textChanged.connect(self._rebuild_popup_options)
         self.input.returnPressed.connect(self._commit_typed_prompt)
         self.chip_layout.addWidget(self.input, 1)
         self.installEventFilter(self)
         self.input.installEventFilter(self)
         self.chip_host.installEventFilter(self)
+        self.chip_scroll.viewport().installEventFilter(self)
 
     def eventFilter(self, watched, event):
-        if watched in (self, self.input, self.chip_host) and event.type() == QEvent.MouseButtonPress:
+        watched_targets = (self, self.input, self.chip_host, self.chip_scroll.viewport())
+        if watched in watched_targets and event.type() == QEvent.MouseButtonPress:
             if event.button() == Qt.LeftButton:
                 QTimer.singleShot(0, self.show_prompt_popup)
         return super().eventFilter(watched, event)
 
     def lineEdit(self):
         return self.input
+
+    def sizeHint(self):
+        return QSize(420, 38)
+
+    def minimumSizeHint(self):
+        return QSize(260, 38)
 
     def currentText(self):
         return self.input.text().strip()
@@ -642,13 +666,21 @@ class PromptChipSelector(QWidget):
             chip.setStyleSheet(
                 "QToolButton#promptChip {"
                 f"background-color: {bg.name(QColor.HexArgb)};"
-                f"border-color: {border.name(QColor.HexArgb)};"
+                f"border: 2px solid {border.name(QColor.HexArgb)};"
                 "}"
             )
             chip.clicked.connect(lambda _checked=False, key=self._entry_key(entry): self._remove_prompt_key(key))
             self.chip_layout.insertWidget(self.chip_layout.count() - 1, chip)
 
         self.input.setPlaceholderText("输入提示词并回车" if self._selected else self._default_placeholder)
+        self.chip_host.adjustSize()
+        QTimer.singleShot(0, self._scroll_chips_to_end)
+
+    def _scroll_chips_to_end(self):
+        if not hasattr(self, "chip_scroll"):
+            return
+        bar = self.chip_scroll.horizontalScrollBar()
+        bar.setValue(bar.maximum())
 
     def _remove_prompt_key(self, key):
         self._selected = [entry for entry in self._selected if self._entry_key(entry) != key]
@@ -662,32 +694,59 @@ class PromptChipSelector(QWidget):
             self._popup = QFrame(self, Qt.Popup)
             self._popup.setObjectName("promptPickerPopup")
             popup_layout = QVBoxLayout(self._popup)
-            popup_layout.setContentsMargins(10, 10, 10, 10)
-            popup_layout.setSpacing(8)
-
-            self._search_edit = QLineEdit()
-            self._search_edit.setObjectName("promptPickerSearch")
-            self._search_edit.setPlaceholderText("搜索或输入新提示词")
-            self._search_edit.textChanged.connect(self._rebuild_popup_options)
-            self._search_edit.returnPressed.connect(self._commit_search_prompt)
-            popup_layout.addWidget(self._search_edit)
+            popup_layout.setContentsMargins(8, 8, 8, 8)
+            popup_layout.setSpacing(0)
 
             scroll = QScrollArea()
             scroll.setObjectName("promptPickerScroll")
             scroll.setWidgetResizable(True)
-            scroll.setMinimumHeight(220)
-            scroll.setMaximumHeight(360)
+            scroll.setMinimumHeight(120)
             self._options_host = QWidget()
             self._options_host.setObjectName("promptPickerOptions")
             scroll.setWidget(self._options_host)
+            self._popup_scroll = scroll
             popup_layout.addWidget(scroll)
 
         self._rebuild_popup_options()
-        pos = self.mapToGlobal(self.rect().bottomLeft())
-        self._popup.setMinimumWidth(max(420, self.width()))
-        self._popup.move(pos)
+        self._position_prompt_popup()
         self._popup.show()
-        self._search_edit.setFocus(Qt.PopupFocusReason)
+        self.input.setFocus(Qt.PopupFocusReason)
+
+    def _position_prompt_popup(self):
+        if self._popup is None:
+            return
+        anchor_top_left = self.mapToGlobal(self.rect().topLeft())
+        anchor_bottom_left = self.mapToGlobal(self.rect().bottomLeft())
+        window = self.window()
+        if window is not None:
+            bounds = window.frameGeometry()
+            left_bound = bounds.left() + 10
+            top_bound = bounds.top() + 10
+            right_bound = bounds.right() - 10
+            bottom_bound = bounds.bottom() - 10
+        else:
+            available = QApplication.primaryScreen().availableGeometry()
+            left_bound = available.left() + 10
+            top_bound = available.top() + 10
+            right_bound = available.right() - 10
+            bottom_bound = available.bottom() - 10
+
+        popup_width = min(max(420, self.width()), max(320, right_bound - left_bound))
+        desired_height = min(320, max(150, self._popup.sizeHint().height()))
+        space_above = anchor_top_left.y() - top_bound - 8
+        space_below = bottom_bound - anchor_bottom_left.y() - 8
+        open_above = space_above >= min(desired_height, 180) or space_above >= space_below
+        max_height = max(120, min(desired_height, space_above if open_above else space_below))
+        if self._popup_scroll is not None:
+            self._popup_scroll.setMaximumHeight(max_height)
+        self._popup.resize(popup_width, max_height + 16)
+
+        x = min(max(anchor_top_left.x(), left_bound), right_bound - popup_width)
+        if open_above:
+            y = max(top_bound, anchor_top_left.y() - self._popup.height() - 6)
+        else:
+            y = min(anchor_bottom_left.y() + 6, bottom_bound - self._popup.height())
+        self._popup.move(x, y)
 
     def _rebuild_popup_options(self):
         if self._options_host is None:
@@ -705,7 +764,7 @@ class PromptChipSelector(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        query = (self._search_edit.text() if self._search_edit else "").strip().lower()
+        query = self.input.text().strip().lower()
         selected_keys = {self._entry_key(entry) for entry in self._selected}
         grouped = {}
         for option in self._options:
@@ -745,16 +804,6 @@ class PromptChipSelector(QWidget):
             self._selected = [item for item in self._selected if self._entry_key(item) != key]
         self._render_chips()
         self.selection_changed.emit()
-
-    def _commit_search_prompt(self):
-        if self._search_edit is None:
-            return
-        text = self._search_edit.text().strip()
-        if not text:
-            return
-        if self.add_prompt(self._current_label, text):
-            self._search_edit.clear()
-            self._rebuild_popup_options()
 
 
 class MainWindow(QMainWindow, Ui_MainWindow):

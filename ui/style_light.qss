@@ -201,6 +201,27 @@ QWidget#promptChipHost {
     background: transparent;
 }
 
+QScrollArea#promptChipScroll {
+    background: transparent;
+    border: 0px;
+}
+
+QScrollArea#promptChipScroll QScrollBar:horizontal {
+    background: transparent;
+    height: 4px;
+}
+
+QScrollArea#promptChipScroll QScrollBar::handle:horizontal {
+    background-color: #cbd5e1;
+    border-radius: 2px;
+    min-width: 24px;
+}
+
+QScrollArea#promptChipScroll QScrollBar::add-line:horizontal,
+QScrollArea#promptChipScroll QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
 QLineEdit#promptChipInput {
     background: transparent;
     border: 0px;
@@ -210,7 +231,7 @@ QLineEdit#promptChipInput {
 }
 
 QToolButton#promptChip {
-    border: 1px solid #16a34a;
+    border: 2px solid #16a34a;
     border-radius: 12px;
     color: #0f172a;
     font-size: 12px;
