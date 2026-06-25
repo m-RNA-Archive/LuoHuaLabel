@@ -512,12 +512,15 @@ class PromptChipSelector(QWidget):
         self.input.setPlaceholderText("输入或选择提示词，如 dog")
         self.input.returnPressed.connect(self._commit_typed_prompt)
         self.chip_layout.addWidget(self.input, 1)
+        self.installEventFilter(self)
+        self.input.installEventFilter(self)
+        self.chip_host.installEventFilter(self)
 
-        self.menu_button = QToolButton()
-        self.menu_button.setObjectName("promptChipMenuButton")
-        self.menu_button.setText("选择")
-        self.menu_button.clicked.connect(self.show_prompt_popup)
-        self.outer_layout.addWidget(self.menu_button)
+    def eventFilter(self, watched, event):
+        if watched in (self, self.input, self.chip_host) and event.type() == QEvent.MouseButtonPress:
+            if event.button() == Qt.LeftButton:
+                QTimer.singleShot(0, self.show_prompt_popup)
+        return super().eventFilter(watched, event)
 
     def lineEdit(self):
         return self.input
@@ -664,8 +667,9 @@ class PromptChipSelector(QWidget):
 
             self._search_edit = QLineEdit()
             self._search_edit.setObjectName("promptPickerSearch")
-            self._search_edit.setPlaceholderText("搜索标签或提示词")
+            self._search_edit.setPlaceholderText("搜索或输入新提示词")
             self._search_edit.textChanged.connect(self._rebuild_popup_options)
+            self._search_edit.returnPressed.connect(self._commit_search_prompt)
             popup_layout.addWidget(self._search_edit)
 
             scroll = QScrollArea()
@@ -742,6 +746,16 @@ class PromptChipSelector(QWidget):
         self._render_chips()
         self.selection_changed.emit()
 
+    def _commit_search_prompt(self):
+        if self._search_edit is None:
+            return
+        text = self._search_edit.text().strip()
+        if not text:
+            return
+        if self.add_prompt(self._current_label, text):
+            self._search_edit.clear()
+            self._rebuild_popup_options()
+
 
 class MainWindow(QMainWindow, Ui_MainWindow):
     def __init__(self):
@@ -784,7 +798,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.last_edit_label_index = self.settings.value("last_edit_label_index", 0, int)
         self.annotation_item_syncing = False
         self.shape_to_item = {}
-        self._sam_label_combo_changing = False
         self._default_palette = QApplication.instance().palette()
         self._last_left_panel_width = 300
         self._last_right_panel_width = 320
@@ -892,7 +905,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         self.samPromptBtn.clicked.connect(self.trigger_sam_prompt)
         self.samRefBtn.clicked.connect(self.trigger_reference_search)
-        self.samLabelCombo.currentIndexChanged.connect(self.on_sam_label_combo_changed)
         self.samPromptInput.lineEdit().returnPressed.connect(self.trigger_sam_prompt)
 
         self.listFiles.currentItemChanged.connect(self.on_file_selected)
@@ -1126,8 +1138,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 return True
         if event.type() == QEvent.KeyPress and self._handle_file_queue_key_press(event):
             return True
-        if event.type() == QEvent.Wheel and self._handle_sam_label_combo_wheel(watched, event):
-            return True
         if event.type() in (QEvent.ShortcutOverride, QEvent.KeyPress) and self._handle_global_shortcut_event(event):
             return True
         if event.type() == QEvent.KeyPress and self._handle_history_shortcut_event(event):
@@ -1180,33 +1190,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         event.accept()
         if event.type() == QEvent.KeyPress:
             callback()
-        return True
-
-    def _handle_sam_label_combo_wheel(self, watched, event):
-        if not hasattr(self, "samLabelCombo"):
-            return False
-        if watched not in (self.samLabelCombo, self.samLabelCombo.lineEdit()):
-            return False
-        if self.samLabelCombo.view().isVisible():
-            return False
-        if self.samLabelCombo.count() <= 0:
-            return False
-
-        delta = event.angleDelta().y()
-        if delta == 0:
-            return False
-
-        step = -1 if delta > 0 else 1
-        current_index = self.samLabelCombo.currentIndex()
-        if current_index < 0:
-            current_index = 0
-        next_index = max(0, min(self.samLabelCombo.count() - 1, current_index + step))
-        if next_index == current_index:
-            event.accept()
-            return True
-
-        self.samLabelCombo.setCurrentIndex(next_index)
-        event.accept()
         return True
 
     def _handle_history_shortcut_event(self, event):
@@ -1733,7 +1716,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self._populate_prompt_alias_children(item, cls_name)
             item.setExpanded(True)
             self._apply_class_item_style(item, cls_name)
-            self.refresh_label_combo()
+            self.refresh_prompt_combo()
             if not self.active_label:
                 self.set_active_label(cls_name)
 
@@ -1885,7 +1868,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if enabled and not self._default_sam_enabled_applied:
             self._default_sam_enabled_applied = True
             self.samSwitch.setChecked(True)
-        self.samLabelCombo.setEnabled(enabled)
         self.samPromptInput.setEnabled(enabled)
         self.samPromptBtn.setEnabled(enabled)
         self.samRefBtn.setEnabled(enabled)
@@ -2106,43 +2088,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.listClasses.clearSelection()
             self.listClasses.setCurrentItem(None)
             self.listClasses.blockSignals(False)
-        if not self._sam_label_combo_changing:
-            self.refresh_label_combo()
         self.refresh_prompt_combo()
         if self.breathing_highlight_enabled:
             self._reset_breathing_highlight()
 
-    def refresh_label_combo(self):
-        if not hasattr(self, "samLabelCombo"):
-            return
-        current_text = self.samLabelCombo.currentText().strip()
-        target_text = self.active_label or current_text
-        self.samLabelCombo.blockSignals(True)
-        try:
-            self.samLabelCombo.clear()
-            self.samLabelCombo.addItems(self.class_list)
-            if target_text:
-                target_index = self.samLabelCombo.findText(target_text)
-                if target_index >= 0:
-                    self.samLabelCombo.setCurrentIndex(target_index)
-                else:
-                    self.samLabelCombo.setEditText(target_text)
-            else:
-                self.samLabelCombo.setEditText("")
-        finally:
-            self.samLabelCombo.blockSignals(False)
-
-    def on_sam_label_combo_changed(self, _index):
-        label = self.samLabelCombo.currentText().strip()
-        if label in self.class_list:
-            self._sam_label_combo_changing = True
-            try:
-                self.set_active_label(label)
-            finally:
-                self._sam_label_combo_changing = False
-
     def ensure_prompt_label(self):
-        label = self.samLabelCombo.currentText().strip() if hasattr(self, "samLabelCombo") else ""
+        label = (self.active_label or "").strip()
         if not label:
             return self.ensure_active_label()
         if label not in self.class_list:
@@ -3644,7 +3595,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.active_label = cls_name
                 self.settings.setValue("active_label", self.active_label)
                 self.update_active_label_indicator()
-                self.refresh_label_combo()
                 self.refresh_prompt_combo()
                 self.samPromptInput.set_single_prompt(cls_name, prompt)
                 if self.breathing_highlight_enabled:
@@ -3717,7 +3667,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if self.active_label == cls_name:
             self.set_active_label(self.class_list[0] if self.class_list else "")
         else:
-            self.refresh_label_combo()
             self.refresh_prompt_combo()
 
         self.save_classes()

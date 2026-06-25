@@ -223,16 +223,6 @@ QToolButton#promptChip:hover {
     border-color: #15803d;
 }
 
-QToolButton#promptChipMenuButton {
-    background-color: #f8fafc;
-    border: 1px solid #cbd5e1;
-    border-radius: 5px;
-    color: #0f172a;
-    font-weight: 600;
-    min-height: 24px;
-    padding: 0px 10px;
-}
-
 QFrame#promptPickerPopup {
     background-color: #ffffff;
     border: 1px solid #cbd5e1;
