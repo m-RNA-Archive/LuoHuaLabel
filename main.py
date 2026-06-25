@@ -9,9 +9,9 @@ from PySide6.QtWidgets import (
     QComboBox, QLineEdit, QTextEdit, QPlainTextEdit,
     QPushButton, QHBoxLayout, QTreeWidgetItem, QAbstractSpinBox, QSplashScreen,
     QProgressBar, QStyledItemDelegate, QStyle, QStyleOptionViewItem, QWidget,
-    QFrame, QToolButton, QScrollArea, QSizePolicy
+    QFrame, QToolButton, QScrollArea, QSizePolicy, QLayout
 )
-from PySide6.QtCore import Qt, QPointF, QRectF, QSettings, QSize, QTimer, QEvent, Signal
+from PySide6.QtCore import Qt, QPointF, QRectF, QRect, QSettings, QSize, QTimer, QEvent, Signal
 from PySide6.QtGui import (
     QPolygonF, QColor, QBrush, QPixmap, QIcon, QPalette, QCursor, QPainter, QPen,
     QShortcut, QKeySequence, QDesktopServices, QFont, QPainterPath, QLinearGradient
@@ -542,6 +542,88 @@ class PromptOptionRow(QFrame):
         return (color.red() * 0.299 + color.green() * 0.587 + color.blue() * 0.114) > 210
 
 
+class PromptFlowLayout(QLayout):
+    def __init__(self, parent=None, margin=0, h_spacing=6, v_spacing=6):
+        super().__init__(parent)
+        self._items = []
+        self._h_spacing = h_spacing
+        self._v_spacing = v_spacing
+        self.setContentsMargins(margin, margin, margin, margin)
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        if 0 <= index < len(self._items):
+            return self._items[index]
+        return None
+
+    def takeAt(self, index):
+        if 0 <= index < len(self._items):
+            return self._items.pop(index)
+        return None
+
+    def expandingDirections(self):
+        return Qt.Orientations(Qt.Orientation(0))
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._do_layout(QRect(0, 0, width, 0), True)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._do_layout(rect, False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        left, top, right, bottom = self.getContentsMargins()
+        size += QSize(left + right, top + bottom)
+        return size
+
+    def _do_layout(self, rect, test_only):
+        left, top, right, bottom = self.getContentsMargins()
+        effective = rect.adjusted(left, top, -right, -bottom)
+        x = effective.x()
+        y = effective.y()
+        line_height = 0
+        max_width = max(1, effective.width())
+
+        for item in self._items:
+            widget = item.widget()
+            hint = item.sizeHint()
+            item_width = hint.width()
+            if widget is not None and widget.objectName() == "promptChipInput":
+                item_width = max(190, max_width - (x - effective.x()))
+            item_width = min(item_width, max_width)
+            next_x = x + item_width + self._h_spacing
+            if x > effective.x() and next_x - self._h_spacing > effective.right() + 1:
+                x = effective.x()
+                y += line_height + self._v_spacing
+                if widget is not None and widget.objectName() == "promptChipInput":
+                    item_width = max(190, max_width)
+                    item_width = min(item_width, max_width)
+                next_x = x + item_width + self._h_spacing
+                line_height = 0
+
+            if not test_only:
+                item.setGeometry(QRect(QPointF(x, y).toPoint(), QSize(item_width, hint.height())))
+
+            x = next_x
+            line_height = max(line_height, hint.height())
+
+        return y + line_height - rect.y() + bottom
+
+
 class PromptChipSelector(QWidget):
     selection_changed = Signal()
 
@@ -556,11 +638,12 @@ class PromptChipSelector(QWidget):
         self._popup = None
         self._popup_scroll = None
         self._options_host = None
+        self._max_visible_rows = 3
+        self._row_height = 30
 
-        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
         self.setMinimumWidth(260)
-        self.setMinimumHeight(38)
-        self.setMaximumHeight(38)
+        self.setMinimumHeight(40)
         self.outer_layout = QHBoxLayout(self)
         self.outer_layout.setContentsMargins(8, 4, 6, 4)
         self.outer_layout.setSpacing(5)
@@ -571,24 +654,21 @@ class PromptChipSelector(QWidget):
         self.add_button.setAutoRaise(True)
         self.add_button.setToolTip("添加提示词")
         self.add_button.clicked.connect(self.show_prompt_popup)
-        self.outer_layout.addWidget(self.add_button)
 
         self.chip_scroll = QScrollArea()
         self.chip_scroll.setObjectName("promptChipScroll")
         self.chip_scroll.setFrameShape(QFrame.NoFrame)
         self.chip_scroll.setWidgetResizable(True)
-        self.chip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.chip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.chip_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.chip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.chip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.chip_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self.chip_scroll.setMinimumWidth(0)
-        self.chip_scroll.setFixedHeight(30)
 
         self.chip_host = QWidget()
         self.chip_host.setObjectName("promptChipHost")
-        self.chip_host.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
-        self.chip_layout = QHBoxLayout(self.chip_host)
+        self.chip_host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.chip_layout = PromptFlowLayout(self.chip_host, h_spacing=6, v_spacing=6)
         self.chip_layout.setContentsMargins(0, 0, 0, 0)
-        self.chip_layout.setSpacing(5)
         self.chip_scroll.setWidget(self.chip_host)
         self.outer_layout.addWidget(self.chip_scroll, 1)
 
@@ -596,16 +676,18 @@ class PromptChipSelector(QWidget):
         self.input.setObjectName("promptChipInput")
         self.input.setFrame(False)
         self.input.setMinimumWidth(190)
-        self.input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.input.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
         self.input.setPlaceholderText("输入或选择提示词，如 dog")
         self.input.textChanged.connect(self._rebuild_popup_options)
         self.input.returnPressed.connect(self._commit_typed_prompt)
-        self.chip_layout.addWidget(self.input, 1)
+        self.chip_layout.addWidget(self.add_button)
+        self.chip_layout.addWidget(self.input)
         self.submit_button = None
         self.installEventFilter(self)
         self.input.installEventFilter(self)
         self.chip_host.installEventFilter(self)
         self.chip_scroll.viewport().installEventFilter(self)
+        self._update_content_height()
 
     def eventFilter(self, watched, event):
         watched_targets = (self, self.input, self.chip_host, self.chip_scroll.viewport())
@@ -618,10 +700,10 @@ class PromptChipSelector(QWidget):
         return self.input
 
     def sizeHint(self):
-        return QSize(420, 38)
+        return QSize(420, self.minimumHeight())
 
     def minimumSizeHint(self):
-        return QSize(260, 38)
+        return QSize(260, self.minimumHeight())
 
     def attach_submit_button(self, button):
         self.submit_button = button
@@ -630,6 +712,7 @@ class PromptChipSelector(QWidget):
         button.setMinimumWidth(44)
         button.setMaximumWidth(88)
         self.outer_layout.addWidget(button)
+        self._update_content_height()
 
     def currentText(self):
         return self.input.text().strip()
@@ -679,7 +762,7 @@ class PromptChipSelector(QWidget):
             self._rebuild_popup_options()
 
     def selected_prompts(self):
-        return [dict(entry) for entry in self._selected]
+        return [dict(entry) for entry in self._selected_sorted()]
 
     def set_single_prompt(self, label, prompt):
         label = (label or "").strip()
@@ -727,45 +810,71 @@ class PromptChipSelector(QWidget):
     def _entry_key(self, entry):
         return self._make_key(entry.get("label", ""), entry.get("prompt", ""))
 
+    def _selected_sorted(self):
+        return sorted(
+            self._selected,
+            key=lambda entry: (
+                self._label_order.get(entry.get("label", ""), 10_000),
+                entry.get("label", "").lower(),
+                entry.get("prompt", "").lower(),
+            ),
+        )
+
     def _render_chips(self):
-        while self.chip_layout.count() > 1:
+        preserved = {self.add_button, self.input}
+        while self.chip_layout.count():
             item = self.chip_layout.takeAt(0)
             widget = item.widget()
-            if widget is not None:
+            if widget is not None and widget not in preserved:
                 widget.deleteLater()
 
-        for entry in self._selected:
+        self.chip_layout.addWidget(self.add_button)
+        for entry in self._selected_sorted():
             chip = QToolButton()
             chip.setObjectName("promptChip")
             prompt = entry["prompt"]
             label = entry["label"]
-            chip.setText(f"{prompt}  ×" if prompt == label else f"{prompt} · {label}  ×")
+            chip.setText(f"{prompt}  ×")
             chip.setToolTip(f"{label} -> {prompt}")
             chip.setAutoRaise(False)
             chip.setMaximumWidth(320)
             color = QColor(entry.get("color") or "#22c55e")
             bg = QColor(color)
             bg.setAlpha(42)
-            border = QColor(color)
-            border.setAlpha(180)
+            border = QColor("#64748b") if self._is_light_color(color) else QColor(color).darker(120)
             chip.setStyleSheet(
                 "QToolButton#promptChip {"
                 f"background-color: {bg.name(QColor.HexArgb)};"
-                f"border: 2px solid {border.name(QColor.HexArgb)};"
+                f"border: 2px solid {border.name()};"
                 "}"
             )
             chip.clicked.connect(lambda _checked=False, key=self._entry_key(entry): self._remove_prompt_key(key))
-            self.chip_layout.insertWidget(self.chip_layout.count() - 1, chip)
+            self.chip_layout.addWidget(chip)
+        self.chip_layout.addWidget(self.input)
 
         self.input.setPlaceholderText("输入提示词并回车" if self._selected else self._default_placeholder)
-        self.chip_host.adjustSize()
-        QTimer.singleShot(0, self._scroll_chips_to_end)
+        self._update_content_height()
 
-    def _scroll_chips_to_end(self):
+    def _is_light_color(self, color):
+        return (color.red() * 0.299 + color.green() * 0.587 + color.blue() * 0.114) > 210
+
+    def _update_content_height(self):
         if not hasattr(self, "chip_scroll"):
             return
-        bar = self.chip_scroll.horizontalScrollBar()
-        bar.setValue(bar.maximum())
+        viewport_width = max(1, self.chip_scroll.viewport().width())
+        content_height = max(self._row_height, self.chip_layout.heightForWidth(viewport_width))
+        max_height = self._row_height * self._max_visible_rows + 6 * (self._max_visible_rows - 1)
+        visible_height = min(content_height, max_height)
+        self.chip_host.setMinimumHeight(content_height)
+        self.chip_scroll.setFixedHeight(visible_height)
+        total_height = visible_height + self.outer_layout.contentsMargins().top() + self.outer_layout.contentsMargins().bottom()
+        self.setMinimumHeight(total_height)
+        self.setMaximumHeight(total_height)
+        self.updateGeometry()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_content_height()
 
     def _remove_prompt_key(self, key):
         self._selected = [entry for entry in self._selected if self._entry_key(entry) != key]
