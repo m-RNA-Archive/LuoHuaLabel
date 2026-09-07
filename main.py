@@ -1441,7 +1441,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             ("P", lambda: self._set_mode(CanvasMode.POLY), False),
             ("T", lambda: self._set_mode(CanvasMode.POINT), False),
             ("O", lambda: self._set_mode(CanvasMode.RBOX), False),
-            ("Q", self.toggle_sam_shortcut, False),
+            ("Q", self.toggle_active_label_visibility, False),
             ("Space", self.toggle_sam_shortcut, False),
             ("Tab", self.cycle_active_label, False),
         ]
@@ -1546,6 +1546,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if QApplication.activeWindow() is not self:
             return False
         if self._text_input_has_focus():
+            if event.type() == QEvent.ShortcutOverride and event.key() == Qt.Key_Q:
+                event.accept()
+                return True
             return False
 
         modifiers = event.modifiers()
@@ -1572,7 +1575,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 Qt.Key_P: lambda: self._set_mode(CanvasMode.POLY),
                 Qt.Key_T: lambda: self._set_mode(CanvasMode.POINT),
                 Qt.Key_O: lambda: self._set_mode(CanvasMode.RBOX),
-                Qt.Key_Q: self.toggle_sam_shortcut,
+                Qt.Key_Q: self.toggle_active_label_visibility,
                 Qt.Key_Space: self.toggle_sam_shortcut,
                 Qt.Key_Tab: self.cycle_active_label,
                 Qt.Key_F1: self.show_help_dialog,
@@ -1586,7 +1589,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return False
 
         event.accept()
-        if event.type() == QEvent.KeyPress:
+        if event.type() == QEvent.KeyPress and not (key == Qt.Key_Q and event.isAutoRepeat()):
             callback()
         return True
 
@@ -1867,6 +1870,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def is_label_visible(self, label):
         return self.class_visibility.get(label, True)
+
+    def toggle_active_label_visibility(self):
+        item = self._find_class_item(self.active_label)
+        if item is not None:
+            item.setCheckState(0, Qt.Unchecked if item.checkState(0) == Qt.Checked else Qt.Checked)
 
     def apply_label_visibility(self, label):
         visible = self.is_label_visible(label)
@@ -4755,10 +4763,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     self.edit_shape_label(item)
                     break
         elif key == Qt.Key_Q:
-            if self.scene.mode == CanvasMode.POINT:
-                self._notify("点标注模式下不可使用 SAM 提示词提取", "warning")
-            else:
-                self.samSwitch.setChecked(not self.samSwitch.isChecked())
+            self.toggle_active_label_visibility()
         elif key == Qt.Key_F1:
             self.show_help_dialog()
         elif key == Qt.Key_R:

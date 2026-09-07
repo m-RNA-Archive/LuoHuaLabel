@@ -1,11 +1,12 @@
 import tempfile
+import json
 import unittest
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QCursor, QPixmap
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
+from PySide6.QtGui import QCursor, QKeyEvent, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QGraphicsPixmapItem
 
@@ -82,6 +83,39 @@ class CanvasSelectionFocusTest(unittest.TestCase):
             self.assertEqual(editor.toPlainText(), 'g')
             self.assertTrue(editor.hasFocus())
             self.assertFalse(self.scene._g_selection_pressed)
+
+    def test_q_toggles_only_active_class_and_preserves_text_input(self):
+        self.window.current_dir = self.stack.enter_context(tempfile.TemporaryDirectory())
+        for label, shape in zip(('first', 'second'), self.shapes):
+            self.window.add_class_to_list(label)
+            shape.label = label
+        self.window.set_active_label('first', persist=False)
+        self.view.setFocus()
+        self.app.processEvents()
+        sam_enabled = self.window.samSwitch.isChecked()
+        QTest.keyClick(self.view, Qt.Key_Q)
+        self.assertEqual(self.window.samSwitch.isChecked(), sam_enabled)
+        self.assertFalse(self.shapes[0].isVisible())
+        self.assertTrue(self.shapes[1].isVisible())
+        self.assertEqual(self.window._find_class_item('first').checkState(0), Qt.Unchecked)
+        stored = json.loads((Path(self.window.current_dir) / 'class_visibility.json').read_text(encoding='utf-8'))
+        self.assertFalse(stored['first'])
+        self.app.sendEvent(self.view, QKeyEvent(QEvent.KeyPress, Qt.Key_Q, Qt.NoModifier, 'q', True))
+        self.assertFalse(self.shapes[0].isVisible())
+        QTest.keyClick(self.view, Qt.Key_Q)
+        self.assertTrue(self.shapes[0].isVisible())
+        QTest.keyClick(self.view, Qt.Key_H)
+        self.assertTrue(self.shapes[0].isVisible())
+        editor = self.window.samPromptInput.input
+        editor.setFocus()
+        editor.clear()
+        QTest.keyClicks(editor, 'qh')
+        self.assertEqual(editor.toPlainText(), 'qh')
+        self.assertTrue(self.shapes[0].isVisible())
+        self.window.active_label = ''
+        self.view.setFocus()
+        QTest.keyClick(self.view, Qt.Key_Q)
+        self.assertTrue(all(shape.isVisible() for shape in self.shapes))
 
 
 if __name__ == '__main__':
