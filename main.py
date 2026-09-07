@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QProgressBar, QStyledItemDelegate, QStyle, QStyleOptionViewItem, QWidget,
     QFrame, QToolButton, QScrollArea, QSizePolicy
 )
-from PySide6.QtCore import Qt, QPointF, QRectF, QSettings, QSize, QTimer, QEvent, Signal
+from PySide6.QtCore import Qt, QPointF, QRectF, QSettings, QSize, QTimer, QEvent, Signal, QItemSelectionModel
 from PySide6.QtGui import (
     QPolygonF, QColor, QBrush, QPixmap, QIcon, QPalette, QCursor, QPainter, QPen,
     QShortcut, QKeySequence, QDesktopServices, QFont, QPainterPath,
@@ -1505,6 +1505,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.select_all_current_annotation_group()
 
     def eventFilter(self, watched, event):
+        if event.type() in (QEvent.ShortcutOverride, QEvent.KeyPress, QEvent.KeyRelease):
+            if self._handle_canvas_selection_key(event):
+                return True
         if watched is self.listFiles.viewport() and event.type() == QEvent.MouseButtonPress:
             if self._handle_file_queue_mouse_press(event):
                 return True
@@ -1518,6 +1521,26 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if event.type() == QEvent.KeyPress and self._handle_history_shortcut_event(event):
             return True
         return super().eventFilter(watched, event)
+
+    def _handle_canvas_selection_key(self, event):
+        if event.key() != Qt.Key_G:
+            return False
+        if event.type() == QEvent.KeyRelease:
+            if self.scene._g_selection_pressed:
+                self.scene.keyReleaseEvent(event)
+                return True
+            return False
+        if QApplication.activeWindow() is not self or QApplication.activePopupWidget() is not None:
+            return False
+        if event.modifiers() & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier):
+            return False
+        if self._text_input_has_focus():
+            return False
+        event.accept()
+        if event.type() == QEvent.KeyPress:
+            self.view.setFocus(Qt.ShortcutFocusReason)
+            self.scene.keyPressEvent(event)
+        return True
 
     def _handle_global_shortcut_event(self, event):
         if QApplication.activeWindow() is not self:
@@ -4145,8 +4168,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                         self.annotationToolBox.setCurrentIndex(toolbox_index)
                         break
                 widget.scrollToItem(item)
-                widget.setCurrentItem(item)
-                widget.setFocus()
+                widget.setCurrentItem(item, QItemSelectionModel.NoUpdate)
         finally:
             self.annotation_item_syncing = False
 

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-from PySide6.QtWidgets import QGraphicsScene, QGraphicsPixmapItem, QGraphicsLineItem, QGraphicsRectItem
-from PySide6.QtGui import QPixmap, QPolygonF, QPen, QColor, QBrush
+from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsPixmapItem, QGraphicsLineItem, QGraphicsRectItem
+from PySide6.QtGui import QPixmap, QPolygonF, QPen, QColor, QBrush, QPainterPath
 from PySide6.QtCore import Qt, QPointF, Signal, QRectF
 from core.shapes import RectShape, PolyShape, PointShape, RotatedRectShape, HandleItem, color_for_label
 
@@ -35,6 +35,11 @@ class Canvas(QGraphicsScene):
         self.start_pt = None
         self.temp_item = None
         self.poly_pts = []
+        self._selection_start = None
+        self._selection_screen_start = None
+        self._selection_before = set()
+        self._selection_item = None
+        self._g_selection_pressed = False
 
         # 智能悬停提示图层
         self.sam_hover_item = None
@@ -64,6 +69,7 @@ class Canvas(QGraphicsScene):
         self.v_line.show()
 
     def clear_shapes(self):
+        self.cancel_drawing()
         for item in self.items():
             if isinstance(item, (RectShape, PolyShape, PointShape, RotatedRectShape)):
                 self.removeItem(item)
@@ -137,6 +143,10 @@ class Canvas(QGraphicsScene):
     def mouseMoveEvent(self, event):
         pt = event.scenePos()
         self.update_crosshair(pt)
+        if self._selection_start is not None:
+            self._update_selection(event)
+            event.accept()
+            return
         super().mouseMoveEvent(event)
         clamped_pt = self.clamp_point(pt)
 
@@ -177,7 +187,7 @@ class Canvas(QGraphicsScene):
     def handle_sam_result(self, poly_pts, rect_xywh, rect_obb, score, is_click):
         """处理来自 SAM 后台的推理结果，正确区分矩形、多边形和旋转框"""
         # 支持 RBOX
-        if not self.sam_enabled or self.mode not in [CanvasMode.RECT, CanvasMode.POLY, CanvasMode.RBOX]:
+        if self._selection_start is not None or not self.sam_enabled or self.mode not in [CanvasMode.RECT, CanvasMode.POLY, CanvasMode.RBOX]:
             return
 
         if not is_click and not self.sam_hover_active:
@@ -233,6 +243,17 @@ class Canvas(QGraphicsScene):
     def mousePressEvent(self, event):
         pt = event.scenePos()
         clamped_pt = self.clamp_point(pt)
+        if event.button() == Qt.LeftButton and (self._g_selection_pressed or event.modifiers() & Qt.ControlModifier):
+            self.cancel_drawing()
+            if self.img_item is not None:
+                self._selection_start = QPointF(pt)
+                self._selection_screen_start = event.screenPos()
+                self._selection_before = set(self.selectedItems())
+            event.accept()
+            return
+        if self._selection_start is not None:
+            event.accept()
+            return
 
         # ---------------- SAM 确认生成 ----------------
         # 支持 RBOX
@@ -292,6 +313,19 @@ class Canvas(QGraphicsScene):
                 self.finish_poly_shape()
 
     def mouseReleaseEvent(self, event):
+        if self._selection_start is not None:
+            if event.button() == Qt.LeftButton:
+                self._update_selection(event)
+                if self._selection_item is None:
+                    for item in self.items(self._selection_start):
+                        while item is not None and not self._is_annotation(item):
+                            item = item.parentItem()
+                        if item is not None:
+                            item.setSelected(not item.isSelected())
+                            break
+                self._finish_selection()
+            event.accept()
+            return
         super().mouseReleaseEvent(event)
         if self.sam_enabled: return
 
@@ -317,6 +351,9 @@ class Canvas(QGraphicsScene):
         self.state_changed.emit()
 
     def mouseDoubleClickEvent(self, event):
+        if self._selection_start is not None or self._g_selection_pressed or event.modifiers() & Qt.ControlModifier:
+            self.mousePressEvent(event)
+            return
         pt = event.scenePos()
         if not self.is_inside_image(pt): return
 
@@ -356,7 +393,50 @@ class Canvas(QGraphicsScene):
             self.temp_item = None
         self.shape_drawn.emit(shape)
 
+    @staticmethod
+    def _is_annotation(item):
+        return isinstance(item, (RectShape, PolyShape, PointShape, RotatedRectShape)) and not getattr(item, 'is_temp', False)
+
+    def _update_selection(self, event):
+        if self._selection_item is None:
+            if (event.screenPos() - self._selection_screen_start).manhattanLength() < QApplication.startDragDistance():
+                return
+            self._selection_item = QGraphicsRectItem()
+            pen = QPen(QColor(28, 126, 214), 1, Qt.DashLine)
+            pen.setCosmetic(True)
+            self._selection_item.setPen(pen)
+            self._selection_item.setBrush(QColor(28, 126, 214, 30))
+            self._selection_item.setAcceptedMouseButtons(Qt.NoButton)
+            self._selection_item.setZValue(10000)
+            self.addItem(self._selection_item)
+        rect = QRectF(self._selection_start, event.scenePos()).normalized()
+        self._selection_item.setRect(rect)
+        hits = set(self.items(rect, Qt.IntersectsItemShape))
+        selection_path = QPainterPath()
+        selection_path.addRect(rect)
+        for item in self.items():
+            if self._is_annotation(item):
+                hit = item in hits
+                if isinstance(item, RotatedRectShape):
+                    hit = selection_path.intersects(item.rect_item.mapToScene(item.rect_item.shape()))
+                item.setSelected(item in self._selection_before or hit)
+
+    def _finish_selection(self, restore=False):
+        if self._selection_start is None:
+            return
+        if restore:
+            for item in self.items():
+                if self._is_annotation(item):
+                    item.setSelected(item in self._selection_before)
+        if self._selection_item is not None:
+            self.removeItem(self._selection_item)
+        self._selection_item = None
+        self._selection_start = None
+        self._selection_screen_start = None
+        self._selection_before.clear()
+
     def cancel_drawing(self):
+        self._finish_selection(restore=True)
         self.drawing = False
         self.poly_pts.clear()
         if self.temp_item:
@@ -367,6 +447,15 @@ class Canvas(QGraphicsScene):
     def keyPressEvent(self, event):
         key = event.key()
         modifiers = event.modifiers()
+        if key == Qt.Key_G and not (modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)):
+            self._g_selection_pressed = True
+            event.accept()
+            return
+        if self._selection_start is not None:
+            if key == Qt.Key_Escape:
+                self.cancel_drawing()
+            event.accept()
+            return
 
         if key == Qt.Key_Backspace or key == Qt.Key_Delete:
             for item in self.selectedItems():
@@ -399,3 +488,16 @@ class Canvas(QGraphicsScene):
                     self.state_changed.emit()
 
         super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key_G:
+            if not event.isAutoRepeat():
+                self._g_selection_pressed = False
+            event.accept()
+            return
+        super().keyReleaseEvent(event)
+
+    def focusOutEvent(self, event):
+        self._g_selection_pressed = False
+        self._finish_selection(restore=True)
+        super().focusOutEvent(event)
