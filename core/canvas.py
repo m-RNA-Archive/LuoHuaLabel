@@ -39,7 +39,6 @@ class Canvas(QGraphicsScene):
         self._selection_screen_start = None
         self._selection_before = set()
         self._selection_item = None
-        self._g_selection_pressed = False
 
         # 智能悬停提示图层
         self.sam_hover_item = None
@@ -243,7 +242,7 @@ class Canvas(QGraphicsScene):
     def mousePressEvent(self, event):
         pt = event.scenePos()
         clamped_pt = self.clamp_point(pt)
-        if event.button() == Qt.LeftButton and (self._g_selection_pressed or event.modifiers() & Qt.ControlModifier):
+        if event.button() == Qt.LeftButton and event.modifiers() & (Qt.ControlModifier | Qt.AltModifier):
             self.cancel_drawing()
             if self.img_item is not None:
                 self._selection_start = QPointF(pt)
@@ -351,7 +350,7 @@ class Canvas(QGraphicsScene):
         self.state_changed.emit()
 
     def mouseDoubleClickEvent(self, event):
-        if self._selection_start is not None or self._g_selection_pressed or event.modifiers() & Qt.ControlModifier:
+        if self._selection_start is not None or event.modifiers() & (Qt.ControlModifier | Qt.AltModifier):
             self.mousePressEvent(event)
             return
         pt = event.scenePos()
@@ -447,10 +446,6 @@ class Canvas(QGraphicsScene):
     def keyPressEvent(self, event):
         key = event.key()
         modifiers = event.modifiers()
-        if key == Qt.Key_G and not (modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)):
-            self._g_selection_pressed = True
-            event.accept()
-            return
         if self._selection_start is not None:
             if key == Qt.Key_Escape:
                 self.cancel_drawing()
@@ -490,14 +485,8 @@ class Canvas(QGraphicsScene):
         super().keyPressEvent(event)
 
     def keyReleaseEvent(self, event):
-        if event.key() == Qt.Key_G:
-            if not event.isAutoRepeat():
-                self._g_selection_pressed = False
-            event.accept()
-            return
         super().keyReleaseEvent(event)
 
     def focusOutEvent(self, event):
-        self._g_selection_pressed = False
         self._finish_selection(restore=True)
         super().focusOutEvent(event)

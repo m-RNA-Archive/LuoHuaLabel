@@ -1505,9 +1505,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.select_all_current_annotation_group()
 
     def eventFilter(self, watched, event):
-        if event.type() in (QEvent.ShortcutOverride, QEvent.KeyPress, QEvent.KeyRelease):
-            if self._handle_canvas_selection_key(event):
-                return True
         if watched is self.listFiles.viewport() and event.type() == QEvent.MouseButtonPress:
             if self._handle_file_queue_mouse_press(event):
                 return True

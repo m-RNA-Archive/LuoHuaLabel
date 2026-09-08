@@ -1,4 +1,4 @@
-import tempfile
+﻿import tempfile
 import json
 import unittest
 from contextlib import ExitStack
@@ -12,7 +12,6 @@ from PySide6.QtWidgets import QApplication, QGraphicsPixmapItem
 
 import main
 from core.shapes import RectShape
-
 
 class CanvasSelectionFocusTest(unittest.TestCase):
     @classmethod
@@ -53,17 +52,13 @@ class CanvasSelectionFocusTest(unittest.TestCase):
         QCursor.setPos(self.view.viewport().mapToGlobal(start))
         self.app.processEvents()
         self.assertTrue(focused.hasFocus())
-        QTest.keyPress(focused, Qt.Key_G)
-        self.assertTrue(self.view.hasFocus())
-        QTest.mousePress(self.view.viewport(), Qt.LeftButton, Qt.NoModifier, start)
+        QTest.mousePress(self.view.viewport(), Qt.LeftButton, Qt.AltModifier, start)
         QTest.mouseMove(self.view.viewport(), end, 30)
         self.app.processEvents()
         QTest.mouseRelease(self.view.viewport(), Qt.LeftButton, Qt.NoModifier, end)
-        QTest.keyRelease(self.app.focusWidget(), Qt.Key_G)
         self.app.processEvents()
         self.assertEqual(set(self.scene.selectedItems()), set(self.shapes))
         self.assertEqual(len(self.window.rectStatsList.selectedItems()), 2)
-        self.assertFalse(self.scene._g_selection_pressed)
 
     def test_g_from_list_and_canvas_focus(self):
         self.drag_from_focus(self.window.rectStatsList)
@@ -82,7 +77,6 @@ class CanvasSelectionFocusTest(unittest.TestCase):
             QTest.keyClicks(editor, 'g')
             self.assertEqual(editor.toPlainText(), 'g')
             self.assertTrue(editor.hasFocus())
-            self.assertFalse(self.scene._g_selection_pressed)
 
     def test_q_toggles_only_active_class_and_preserves_text_input(self):
         self.window.current_dir = self.stack.enter_context(tempfile.TemporaryDirectory())
@@ -116,7 +110,6 @@ class CanvasSelectionFocusTest(unittest.TestCase):
         self.view.setFocus()
         QTest.keyClick(self.view, Qt.Key_Q)
         self.assertTrue(all(shape.isVisible() for shape in self.shapes))
-
 
 if __name__ == '__main__':
     unittest.main()
