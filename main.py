@@ -2495,9 +2495,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.listClasses.clearSelection()
             self.listClasses.setCurrentItem(None)
             self.listClasses.blockSignals(False)
+        self._raise_active_label_shapes()
         self.refresh_prompt_combo()
         if self.breathing_highlight_enabled:
             self._reset_breathing_highlight()
+
+    def _raise_active_label_shapes(self):
+        if not hasattr(self, "scene"):
+            return
+        for shape in self.scene.items():
+            if isinstance(shape, (RectShape, PolyShape, PointShape, RotatedRectShape)):
+                shape.setZValue(200 if getattr(shape, "label", "") == self.active_label else 100)
 
     def ensure_prompt_label(self):
         label = (self.active_label or "").strip()
