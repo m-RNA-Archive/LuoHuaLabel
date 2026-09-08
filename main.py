@@ -1773,10 +1773,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.auto_save_annotation()
 
     def edit_selected_shape_label(self):
-        for item in self.scene.selectedItems():
-            if hasattr(item, "label"):
-                self.edit_shape_label(item)
-                break
+        selected_items = [
+            item for item in self.scene.selectedItems()
+            if isinstance(item, (RectShape, PolyShape, PointShape, RotatedRectShape))
+        ]
+        if selected_items:
+            self.edit_shapes_label(selected_items)
 
     def toggle_sam_shortcut(self):
         if self.scene.mode == CanvasMode.POINT:
