@@ -1131,6 +1131,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.pending_prompt_targets = {}
         self.batch_prompt_queue = []
         self.active_batch_prompt_task = None
+        self._batch_prompt_restore_sam_state = None
         self.batch_prompt_total = 0
         self.batch_prompt_completed = 0
         self.batch_prompt_added = 0
@@ -3360,6 +3361,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if not deduped_paths or not valid_entries:
             return
 
+        self._batch_prompt_restore_sam_state = self.samSwitch.isChecked()
         self.batch_prompt_queue = [
             {
                 "image_path": image_path,
@@ -3411,7 +3413,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.batch_prompt_completed = 0
             self.batch_prompt_added = 0
             self.batch_prompt_failed = 0
+            restore_sam = self._batch_prompt_restore_sam_state
+            self._batch_prompt_restore_sam_state = None
             self.apply_sam_control_availability()
+            if restore_sam is not None and self.samSwitch.isEnabled():
+                self.samSwitch.setChecked(restore_sam)
             self._set_status(f"智能标注完成：{total} 个任务，新增 {added} 个标注，失败 {failed} 个", "green" if failed == 0 else "orange")
             QTimer.singleShot(2400, self._update_batch_prompt_progress)
             if self.current_image_path:
