@@ -1277,6 +1277,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.samPromptBtn.clicked.connect(self.trigger_sam_prompt)
         self.samRefBtn.clicked.connect(self.trigger_reference_search)
         self.samPromptInput.lineEdit().returnPressed.connect(self.trigger_sam_prompt)
+        self.samPromptInput.selection_changed.connect(self.save_prompt_selection)
 
         self.listFiles.currentItemChanged.connect(self.on_file_selected)
         self.listFiles.itemChanged.connect(self.on_file_queue_item_changed)
@@ -2538,6 +2539,32 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return
         self.samPromptInput.set_current_label(self.active_label)
         self.samPromptInput.set_prompt_options(self._prompt_selector_options())
+
+    def load_prompt_selection(self):
+        if not self.current_dir or not hasattr(self, "samPromptInput"):
+            return
+        path = os.path.join(self.current_dir, "prompt_selection.json")
+        if not os.path.exists(path):
+            self.samPromptInput.clear()
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                entries = json.load(f)
+            self.samPromptInput.clear()
+            if isinstance(entries, list):
+                for entry in entries:
+                    if isinstance(entry, dict):
+                        self.samPromptInput.add_prompt(entry.get("label", ""), entry.get("prompt", ""))
+        except Exception:
+            self.samPromptInput.clear()
+
+    def save_prompt_selection(self):
+        if not self.current_dir or not hasattr(self, "samPromptInput"):
+            return
+        path = os.path.join(self.current_dir, "prompt_selection.json")
+        entries = self.samPromptInput.selected_prompts()
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(entries, f, ensure_ascii=False, indent=2)
 
     def _prompt_selector_options(self):
         options = []
@@ -3886,6 +3913,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.set_active_label(self.class_list[0], persist=False)
         else:
             self.set_active_label("", persist=False)
+        self.load_prompt_selection()
 
     def save_classes(self):
         if self.current_dir:
@@ -4458,6 +4486,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def on_file_selected(self, current, previous):
         if previous:
             self.auto_save_annotation()
+            self.save_prompt_selection()
 
         if current:
             path = current.data(Qt.UserRole) or current.text()
@@ -4723,6 +4752,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def closeEvent(self, event):
         self.auto_save_annotation()
+        self.save_prompt_selection()
         if self.current_image_path:
             self.settings.setValue("last_image_path", os.path.abspath(self.current_image_path))
         else:
