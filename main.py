@@ -4180,7 +4180,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         finally:
             self.annotation_item_syncing = False
 
-    def populate_file_list(self, dir_path):
+    def populate_file_list(self, dir_path, restore_image_path=""):
         self.current_dir = dir_path
         self.settings.setValue("last_dir", dir_path)
         self.listFiles.clear()
@@ -4202,7 +4202,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.listFiles.addItem(item)
         self.update_file_queue_title()
         if self.listFiles.count() > 0:
-            self.listFiles.setCurrentRow(0)
+            restore_row = 0
+            if restore_image_path:
+                target_path = os.path.normcase(os.path.abspath(restore_image_path))
+                for index in range(self.listFiles.count()):
+                    item_path = self._file_item_path(self.listFiles.item(index))
+                    if os.path.normcase(os.path.abspath(item_path)) == target_path:
+                        restore_row = index
+                        break
+            self.listFiles.setCurrentRow(restore_row)
+            QTimer.singleShot(0, lambda: self.listFiles.scrollToItem(self.listFiles.currentItem())
+                              if self.listFiles.currentItem() is not None else None)
         else:
             self.current_image_path = None
             self._update_window_title()
@@ -4227,7 +4237,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def restore_last_session(self):
         last_dir = self.settings.value("last_dir", "", str)
         if last_dir and os.path.isdir(last_dir):
-            self.populate_file_list(last_dir)
+            self.populate_file_list(last_dir, self.settings.value("last_image_path", "", str))
 
     def handle_new_shape(self, shape):
         self.scene.addItem(shape)
@@ -4708,6 +4718,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def closeEvent(self, event):
         self.auto_save_annotation()
+        if self.current_image_path:
+            self.settings.setValue("last_image_path", os.path.abspath(self.current_image_path))
+        else:
+            self.settings.remove("last_image_path")
+        self.settings.sync()
         self.sam_client.cleanup()
         super().closeEvent(event)
 
